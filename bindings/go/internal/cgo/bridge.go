@@ -176,15 +176,20 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 	return &DB{ptr: db}, nil
 }
 
-func (db *DB) Close() error {
+func (db *DB) Close() (bool, error) {
 	if db == nil || db.ptr == nil {
-		return nil
+		return true, nil
 	}
-	err := errorFromCode(ErrorCode(C.lattice_close(db.ptr)))
-	if err == nil {
+	code := ErrorCode(C.lattice_close(db.ptr))
+	consumed := databaseCloseConsumesHandle(code)
+	if consumed {
 		db.ptr = nil
 	}
-	return err
+	return consumed, errorFromCode(code)
+}
+
+func databaseCloseConsumesHandle(code ErrorCode) bool {
+	return code == ErrorOK || code == ErrorIO
 }
 
 func (db *DB) Begin(readOnly bool) (*Tx, error) {

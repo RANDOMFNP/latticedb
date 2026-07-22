@@ -44,11 +44,11 @@ func (db *DB) Close() error {
 	if db == nil || db.raw == nil {
 		return nil
 	}
-	err := wrapError(db.raw.Close())
-	if err == nil {
+	consumed, closeErr := db.raw.Close()
+	if consumed {
 		db.raw = nil
 	}
-	return err
+	return wrapError(closeErr)
 }
 
 func (db *DB) IsOpen() bool {

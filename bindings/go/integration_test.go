@@ -8,6 +8,35 @@ import (
 	"testing"
 )
 
+func TestRejectedCloseRetainsDatabaseHandle(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "close-active-transaction.db")
+	db, err := Open(dbPath, OpenOptions{Create: true})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	tx, err := db.BeginRead()
+	if err != nil {
+		t.Fatalf("begin read: %v", err)
+	}
+
+	err = db.Close()
+	var latticeErr *Error
+	if !errors.As(err, &latticeErr) || latticeErr.Code != ErrorInvalidArg {
+		t.Fatalf("close with active transaction = %v, want ErrorInvalidArg", err)
+	}
+	if !db.IsOpen() {
+		t.Fatal("database should remain open after rejected close")
+	}
+
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback read: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db after rollback: %v", err)
+	}
+}
+
 func TestNodePropertyRoundTripAndMissingVsNull(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 

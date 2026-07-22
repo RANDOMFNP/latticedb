@@ -197,7 +197,11 @@ lattice_error lattice_open_v3(
 
 /* Close a database.
  * Returns LATTICE_ERROR_INVALID_ARG if transaction or result handles that
- * depend on this database are still active. Close those handles first. */
+ * depend on this database are still active. Close those handles first; the
+ * database remains open in that case.
+ * Once finalization begins, this function always consumes the database handle.
+ * In particular, LATTICE_ERROR_IO reports a sync/checkpoint failure but the
+ * handle is still closed and must not be reused or passed to lattice_close. */
 lattice_error lattice_close(lattice_database* db);
 
 /*

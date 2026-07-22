@@ -68,6 +68,40 @@ describe('Node', () => {
   });
 });
 
+describe('Database close ownership', () => {
+  function databaseWithCloseError(code: LatticeErrorCode): Database {
+    const db = new Database('unused.db');
+    const internals = db as unknown as {
+      ffi: { close: (handle: unknown) => void };
+      dbHandle: unknown;
+      closed: boolean;
+    };
+    internals.ffi = {
+      close: () => {
+        throw new LatticeError('close failed', code);
+      },
+    };
+    internals.dbHandle = {};
+    internals.closed = false;
+    return db;
+  }
+
+  test('I/O error consumes the database handle', async () => {
+    const db = databaseWithCloseError(LatticeErrorCode.IoError);
+
+    await expect(db.close()).rejects.toMatchObject({ code: LatticeErrorCode.IoError });
+    expect(db.isOpen()).toBe(false);
+    await expect(db.close()).resolves.toBeUndefined();
+  });
+
+  test('rejected close retains the database handle', async () => {
+    const db = databaseWithCloseError(LatticeErrorCode.InvalidArg);
+
+    await expect(db.close()).rejects.toMatchObject({ code: LatticeErrorCode.InvalidArg });
+    expect(db.isOpen()).toBe(true);
+  });
+});
+
 describe('Edge', () => {
   test('create edge', () => {
     const edge: Edge = {

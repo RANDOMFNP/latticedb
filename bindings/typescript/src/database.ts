@@ -14,6 +14,8 @@ import {
 import {
   getFFI,
   LatticeFFI,
+  LatticeError,
+  LatticeErrorCode,
   DatabaseHandle,
 } from './ffi';
 
@@ -112,7 +114,15 @@ export class Database {
     if (this.closed || this.dbHandle === null || this.ffi === null) {
       return;
     }
-    this.ffi.close(this.dbHandle);
+    try {
+      this.ffi.close(this.dbHandle);
+    } catch (error) {
+      if (error instanceof LatticeError && error.code === LatticeErrorCode.IoError) {
+        this.dbHandle = null;
+        this.closed = true;
+      }
+      throw error;
+    }
     this.dbHandle = null;
     this.closed = true;
   }

@@ -14,6 +14,7 @@ from latticedb.types import QueryResult, VectorSearchResult
 from latticedb._bindings import library_available
 from latticedb.embedding import EmbeddingApiFormat
 import latticedb._bindings as bindings
+import latticedb.database as database_mod
 import latticedb.embedding as embedding_mod
 
 
@@ -459,6 +460,44 @@ class TestErrorMapping:
 
         assert type(exc_info.value) is bindings.LatticeInvalidArgError
         assert exc_info.value.code == bindings.LATTICE_ERROR_INVALID_ARG
+
+
+class TestDatabaseCloseOwnership:
+    """Tests for native database handle ownership after close errors."""
+
+    @staticmethod
+    def _database_with_close_result(monkeypatch, result):
+        native = SimpleNamespace(
+            lattice_close=lambda _handle: result,
+            lattice_error_message=lambda _code: b"close failed",
+        )
+        fake_lib = SimpleNamespace(_lib=native)
+        monkeypatch.setattr(database_mod, "get_lib", lambda: fake_lib)
+        monkeypatch.setattr(bindings, "get_lib", lambda: fake_lib)
+
+        db = object.__new__(Database)
+        db._handle = ctypes.c_void_p(1)
+        db._closed = False
+        return db
+
+    def test_io_error_consumes_database_handle(self, monkeypatch):
+        db = self._database_with_close_result(monkeypatch, bindings.LATTICE_ERROR_IO)
+
+        with pytest.raises(bindings.LatticeIOError):
+            db.close()
+
+        assert db._handle is None
+        assert db._closed is True
+        db.close()
+
+    def test_rejected_close_retains_database_handle(self, monkeypatch):
+        db = self._database_with_close_result(monkeypatch, bindings.LATTICE_ERROR_INVALID_ARG)
+
+        with pytest.raises(bindings.LatticeInvalidArgError):
+            db.close()
+
+        assert db._handle is not None
+        assert db._closed is False
 
 
 class TestEmbeddingClientUnit:

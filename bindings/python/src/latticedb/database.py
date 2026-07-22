@@ -20,6 +20,8 @@ from latticedb._bindings import (
     OpenOptions,
     OpenOptionsV2,
     OpenOptionsV3,
+    LATTICE_OK,
+    LATTICE_ERROR_IO,
     LATTICE_ERROR_UNSUPPORTED,
     LatticeUnsupportedError,
     check_error,
@@ -182,8 +184,9 @@ class Database:
 
         lib = get_lib()
         code = lib._lib.lattice_close(self._handle)
-        self._handle = None
-        self._closed = True
+        if code in (LATTICE_OK, LATTICE_ERROR_IO):
+            self._handle = None
+            self._closed = True
         check_error(code)
 
     def read(self) -> Transaction:
