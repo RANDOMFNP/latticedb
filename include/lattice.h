@@ -204,7 +204,10 @@ lattice_error lattice_close(lattice_database* db);
  * Transaction operations
  */
 
-/* Begin a transaction */
+/* Begin a transaction.
+ * At most one read-write transaction may be active per database handle.
+ * Beginning a second writer returns LATTICE_ERROR_LOCK_TIMEOUT; read-only
+ * transactions may remain active alongside the writer. */
 lattice_error lattice_begin(
     lattice_database* db,
     lattice_txn_mode mode,

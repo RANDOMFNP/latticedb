@@ -1,6 +1,7 @@
 package latticedb
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -639,6 +640,49 @@ func TestBeginReadAndBeginWrite(t *testing.T) {
 	}
 	if err := readTx.Rollback(); err != nil {
 		t.Fatalf("rollback read tx: %v", err)
+	}
+}
+
+func TestSecondWriterIsRejectedUntilFirstWriterEnds(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "single-writer.db")
+	db, err := Open(dbPath, OpenOptions{Create: true})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Fatalf("close db: %v", closeErr)
+		}
+	}()
+
+	writer, err := db.BeginWrite()
+	if err != nil {
+		t.Fatalf("begin first writer: %v", err)
+	}
+
+	_, err = db.BeginWrite()
+	var latticeErr *Error
+	if !errors.As(err, &latticeErr) || latticeErr.Code != ErrorLockTimeout {
+		t.Fatalf("expected lock-timeout error for second writer, got %v", err)
+	}
+
+	reader, err := db.BeginRead()
+	if err != nil {
+		t.Fatalf("begin reader while writer active: %v", err)
+	}
+	if err := reader.Rollback(); err != nil {
+		t.Fatalf("rollback reader: %v", err)
+	}
+	if err := writer.Rollback(); err != nil {
+		t.Fatalf("rollback first writer: %v", err)
+	}
+
+	nextWriter, err := db.BeginWrite()
+	if err != nil {
+		t.Fatalf("begin writer after rollback: %v", err)
+	}
+	if err := nextWriter.Rollback(); err != nil {
+		t.Fatalf("rollback next writer: %v", err)
 	}
 }
 

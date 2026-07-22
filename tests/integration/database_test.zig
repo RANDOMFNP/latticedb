@@ -11,6 +11,7 @@ const std = @import("std");
 const lattice = @import("lattice");
 
 const Database = lattice.storage.database.Database;
+const DatabaseError = lattice.storage.database.DatabaseError;
 const DatabaseConfig = lattice.storage.database.DatabaseConfig;
 const OpenOptions = lattice.storage.database.OpenOptions;
 const PropertyValue = lattice.core.types.PropertyValue;
@@ -207,6 +208,32 @@ test "database: edge IDs remain monotonic across abort and reopen" {
         var newer = try db.edge_store.getById(next_id);
         defer newer.deinit(allocator);
     }
+}
+
+test "database: rejects overlapping write transactions" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_single_writer_test.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(path ++ "-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path ++ "-wal") catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_wal = true, .enable_fts = false },
+    });
+    defer db.close();
+
+    var writer = try db.beginTransaction(.read_write);
+    try std.testing.expectError(DatabaseError.TransactionConflict, db.beginTransaction(.read_write));
+
+    var reader = try db.beginTransaction(.read_only);
+    try db.abortTransaction(&reader);
+
+    try db.abortTransaction(&writer);
+    var next_writer = try db.beginTransaction(.read_write);
+    try db.abortTransaction(&next_writer);
 }
 
 test "database: deleteEdgeById persists exact parallel-edge deletion across reopen" {

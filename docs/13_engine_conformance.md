@@ -160,12 +160,13 @@ The current public transaction contract locks in these guarantees:
 The current public contract does not freeze:
 
 - cross-transaction visibility before commit
-- the behavior of a long-lived transaction across concurrent commits
-- concurrent writer conflict resolution, including whether contending writers fail, block, expose uncommitted changes to each other, or resolve by mutation order or commit order
+- the behavior of a long-lived read transaction across concurrent commits
 
-Portable applications must not rely on overlapping write transactions touching the same logical record. If two live write transactions can both mutate the same node, edge, or property, the caller should serialize them with a higher-level lock or restrict itself to one active writer at a time per database.
-
-> Current reference note (non-normative): the Zig engine's current public database surface allows one live writer to observe another live writer's uncommitted mutation, and same-property conflicts currently resolve by mutation order rather than commit order. That behavior is an implementation detail, not the required cross-engine contract.
+Only one read-write transaction may be active per database handle. Beginning a
+second writer fails with the public lock-timeout/contention error instead of
+allowing overlapping overlays to overwrite each other's committed changes.
+Read-only transactions may remain active while the writer runs and retain their
+snapshot-oriented visibility guarantees.
 
 The internal transaction manager uses snapshot-oriented MVCC machinery, but that should not be treated as the required public engine contract yet because the end-to-end database APIs are not fully wired to expose those stronger guarantees consistently. Implementations may provide stronger isolation than the guarantees listed above, but callers must not depend on that stronger behavior for cross-engine portability.
 

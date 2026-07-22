@@ -347,6 +347,7 @@ fn mapDatabaseError(err: DatabaseError) lattice_error {
         DatabaseError.InvalidArgument => .err_invalid_arg,
         DatabaseError.TransactionNotActive => .err_invalid_arg,
         DatabaseError.TransactionReadOnly => .err_read_only,
+        DatabaseError.TransactionConflict => .err_lock_timeout,
         DatabaseError.TransactionsNotEnabled => .err_invalid_arg,
         DatabaseError.ValueTooLarge => .err_value_too_large,
     };
@@ -1250,6 +1251,7 @@ pub export fn lattice_begin(
                 return .err_unsupported;
             },
             DatabaseError.OutOfMemory => .err_out_of_memory,
+            DatabaseError.TransactionConflict => .err_lock_timeout,
             else => .err,
         };
     };

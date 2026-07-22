@@ -745,6 +745,24 @@ describeIfNative('Database Integration', () => {
       });
     });
 
+    test('second writer is rejected until first writer ends', async () => {
+      const writer = beginManualTransaction(false);
+
+      try {
+        beginManualTransaction(false);
+        throw new Error('expected second writer to be rejected');
+      } catch (err) {
+        expect(err).toMatchObject({ code: LatticeErrorCode.LockTimeout });
+      }
+
+      const reader = beginManualTransaction(true);
+      reader.rollback();
+      writer.rollback();
+
+      const nextWriter = beginManualTransaction(false);
+      nextWriter.rollback();
+    });
+
     test('manual commit marks transaction inactive and prevents reuse', async () => {
       const txn = beginManualTransaction(false);
       expect(txn.isReadOnly()).toBe(false);

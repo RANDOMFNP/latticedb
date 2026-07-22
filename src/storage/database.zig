@@ -131,6 +131,7 @@ pub const DatabaseError = error{
     InvalidArgument,
     TransactionNotActive,
     TransactionReadOnly,
+    TransactionConflict,
     TransactionsNotEnabled,
     /// Serialized node/edge payload exceeds the B-tree value limit or could
     /// not be represented by the on-disk value layout.
@@ -406,7 +407,7 @@ fn mapTxnError(err: TxnError) DatabaseError {
         TxnError.SavepointNotFound => DatabaseError.InvalidArgument,
         TxnError.RecordTooLarge => DatabaseError.ValueTooLarge,
         TxnError.WalError => DatabaseError.IoError,
-        TxnError.Conflict => DatabaseError.TransactionNotActive,
+        TxnError.Conflict => DatabaseError.TransactionConflict,
         TxnError.OutOfMemory => DatabaseError.OutOfMemory,
     };
 }
@@ -719,6 +720,7 @@ pub const Database = struct {
     // Transactions
     txn_manager: ?TxnManager,
     txn_overlays: std.AutoHashMap(u64, TxnOverlay),
+    active_writer_txn_id: ?u64,
     stream_mutex: @import("compat").Mutex,
     stream_cond: @import("compat").Condition,
     stream_epoch: u64,
@@ -934,6 +936,7 @@ pub const Database = struct {
             self.txn_manager = TxnManager.init(allocator, wal);
         }
         self.txn_overlays = std.AutoHashMap(u64, TxnOverlay).init(allocator);
+        self.active_writer_txn_id = null;
         self.stream_epoch = 0;
 
         // 10. Initialize Adjacency Cache (optional)
@@ -1072,13 +1075,23 @@ pub const Database = struct {
     /// Returns a Transaction handle that must be passed to mutating operations
     pub fn beginTransaction(self: *Self, mode: TxnMode) DatabaseError!Transaction {
         if (self.txn_manager) |*tm| {
-            const txn = tm.begin(mode, .snapshot) catch |err| {
+            if (mode == .read_write and self.active_writer_txn_id != null) {
+                return DatabaseError.TransactionConflict;
+            }
+
+            var txn = tm.begin(mode, .snapshot) catch |err| {
                 return switch (err) {
                     TxnError.TooManyTransactions => DatabaseError.OutOfMemory,
                     else => DatabaseError.IoError,
                 };
             };
-            self.txn_overlays.put(txn.id, .{}) catch return DatabaseError.OutOfMemory;
+            self.txn_overlays.put(txn.id, .{}) catch {
+                tm.abort(&txn) catch {};
+                return DatabaseError.OutOfMemory;
+            };
+            if (mode == .read_write) {
+                self.active_writer_txn_id = txn.id;
+            }
             return txn;
         }
         return DatabaseError.TransactionsNotEnabled;
@@ -1110,6 +1123,9 @@ pub const Database = struct {
             if (self.txn_overlays.fetchRemove(txn.id)) |entry| {
                 var overlay = entry.value;
                 overlay.deinit(self.allocator);
+            }
+            if (self.active_writer_txn_id == txn.id) {
+                self.active_writer_txn_id = null;
             }
             if (should_broadcast_streams) {
                 self.stream_mutex.lock();
@@ -1155,6 +1171,9 @@ pub const Database = struct {
             if (self.txn_overlays.fetchRemove(txn.id)) |entry| {
                 var overlay = entry.value;
                 overlay.deinit(self.allocator);
+            }
+            if (self.active_writer_txn_id == txn.id) {
+                self.active_writer_txn_id = null;
             }
             return;
         }

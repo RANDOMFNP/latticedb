@@ -10,6 +10,7 @@ import pytest
 from latticedb import (
     Database,
     LatticeError,
+    LatticeLockTimeoutError,
     LatticeNotFoundError,
     LatticeQueryError,
     LatticeUnsupportedError,
@@ -150,6 +151,24 @@ class TestTransactions:
                 assert txn.is_active
                 txn.rollback()
                 assert not txn.is_active
+
+    def test_second_writer_is_rejected_until_first_writer_ends(self, tmp_path):
+        db_path = tmp_path / "single-writer.db"
+
+        with Database(db_path, create=True) as db:
+            with db.write() as writer:
+                with pytest.raises(LatticeLockTimeoutError):
+                    with db.write():
+                        pass
+
+                with db.read() as reader:
+                    assert reader.is_active
+
+                writer.rollback()
+
+            with db.write() as next_writer:
+                assert next_writer.is_active
+                next_writer.rollback()
 
     def test_transaction_auto_rollback(self, tmp_path):
         """Test that uncommitted transactions are rolled back on exit."""

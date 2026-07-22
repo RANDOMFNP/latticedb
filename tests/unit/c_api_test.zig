@@ -595,6 +595,49 @@ test "c_api: begin and rollback transaction" {
     try std.testing.expectEqual(lattice_error.ok, c_api.lattice_rollback(txn));
 }
 
+test "c_api: second writer receives lock timeout until first writer ends" {
+    const path = "/tmp/lattice_capi_single_writer_test.db";
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(path ++ "-wal") catch {};
+
+    var db: ?*lattice_database = null;
+    const options = lattice_open_options{
+        .create = true,
+        .read_only = false,
+        .cache_size_mb = 4,
+        .page_size = 4096,
+        .enable_vector = false,
+        .vector_dimensions = 0,
+    };
+
+    try std.testing.expectEqual(lattice_error.ok, c_api.lattice_open(path, &options, &db));
+    defer {
+        _ = c_api.lattice_close(db);
+        @import("compat").fs.cwd().deleteFile(path) catch {};
+        @import("compat").fs.cwd().deleteFile(path ++ "-wal") catch {};
+    }
+
+    var first_writer: ?*lattice_txn = null;
+    try std.testing.expectEqual(lattice_error.ok, c_api.lattice_begin(db, .read_write, &first_writer));
+
+    var blocked_writer: ?*lattice_txn = null;
+    try std.testing.expectEqual(
+        lattice_error.err_lock_timeout,
+        c_api.lattice_begin(db, .read_write, &blocked_writer),
+    );
+    try std.testing.expect(blocked_writer == null);
+
+    var reader: ?*lattice_txn = null;
+    try std.testing.expectEqual(lattice_error.ok, c_api.lattice_begin(db, .read_only, &reader));
+    try std.testing.expectEqual(lattice_error.ok, c_api.lattice_rollback(reader));
+
+    try std.testing.expectEqual(lattice_error.ok, c_api.lattice_rollback(first_writer));
+
+    var next_writer: ?*lattice_txn = null;
+    try std.testing.expectEqual(lattice_error.ok, c_api.lattice_begin(db, .read_write, &next_writer));
+    try std.testing.expectEqual(lattice_error.ok, c_api.lattice_rollback(next_writer));
+}
+
 test "c_api: read-only transaction prevents writes" {
     const path = "/tmp/lattice_capi_readonly_test.db";
     @import("compat").fs.cwd().deleteFile(path) catch {};
