@@ -80,6 +80,7 @@ pub const FtsSearchResult = scorer_mod.ScoredDoc;
 const vector_storage_mod = lattice.vector.storage;
 const VectorStorage = vector_storage_mod.VectorStorage;
 const VectorStorageError = vector_storage_mod.VectorStorageError;
+const VectorLocation = vector_storage_mod.VectorLocation;
 const vector_distance = lattice.vector.distance;
 
 const hnsw_mod = lattice.vector.hnsw;
@@ -921,9 +922,7 @@ pub const Database = struct {
                             } else |_| {}
                         }
                         if (!loaded) {
-                            self.rebuildHnswIndex(vs, hnsw) catch {
-                                // Log error but continue - index will be empty
-                            };
+                            try self.rebuildHnswIndex(vs, hnsw);
                         }
                     }
                 }
@@ -1679,7 +1678,7 @@ pub const Database = struct {
             switch (entry.value_ptr.*) {
                 .absent => {
                     if (self.hnsw_index) |*hnsw| {
-                        hnsw.remove(entry.key_ptr.*);
+                        hnsw.remove(entry.key_ptr.*) catch |err| return mapHnswError(err);
                     }
                 },
                 .value => |vector| try self.setNodeVector(entry.key_ptr.*, vector),
@@ -2342,27 +2341,37 @@ pub const Database = struct {
     }
 
     /// Rebuild the HNSW index from persisted vectors
-    fn rebuildHnswIndex(self: *Self, vs: *VectorStorage, hnsw: *HnswIndex) !void {
-        // Get all stored vector entries
-        const entries = vs.getAllEntries(self.allocator) catch return;
+    fn rebuildHnswIndex(self: *Self, vs: *VectorStorage, hnsw: *HnswIndex) DatabaseError!void {
+        const entries = vs.getAllEntries(self.allocator) catch |err| return mapVectorStorageError(err);
         defer if (entries.len > 0) self.allocator.free(entries);
 
-        // Track unique IDs to avoid duplicate insertions
-        var seen = std.AutoHashMap(u64, void).init(self.allocator);
-        defer seen.deinit();
-
-        // Insert each vector into the HNSW index
+        // Legacy databases may contain append-only replacement records. Later
+        // records are authoritative, and superseded slots can be reclaimed.
+        var latest = std.AutoHashMap(u64, VectorLocation).init(self.allocator);
+        defer latest.deinit();
         for (entries) |entry| {
-            // Skip duplicates
-            if (seen.contains(entry.id)) continue;
-            seen.put(entry.id, {}) catch continue;
+            if (latest.get(entry.id)) |old_location| {
+                if (!self.read_only) {
+                    vs.delete(old_location, entry.id) catch |err| return mapVectorStorageError(err);
+                }
+            }
+            latest.put(entry.id, entry.location) catch return DatabaseError.OutOfMemory;
+        }
 
-            // Get the vector data from storage
-            const vector = vs.getByLocation(entry.location) catch continue;
+        var iter = latest.iterator();
+        while (iter.next()) |entry| {
+            const vector_id = entry.key_ptr.*;
+            const location = entry.value_ptr.*;
+            if (!(try self.nodeExists(vector_id))) {
+                if (!self.read_only) {
+                    vs.delete(location, vector_id) catch |err| return mapVectorStorageError(err);
+                }
+                continue;
+            }
+
+            const vector = vs.getByLocation(location) catch |err| return mapVectorStorageError(err);
             defer vs.free(vector);
-
-            // Insert into HNSW index
-            hnsw.insert(entry.id, vector) catch continue;
+            hnsw.insertStored(vector_id, location, vector) catch |err| return mapHnswError(err);
         }
     }
 
@@ -3732,7 +3741,7 @@ pub const Database = struct {
         };
 
         if (self.hnsw_index) |*hnsw| {
-            hnsw.remove(node_id);
+            hnsw.remove(node_id) catch |err| return mapHnswError(err);
         }
 
         // Invalidate query cache (labels changed)
@@ -4251,7 +4260,7 @@ pub const Database = struct {
 
         if (new_labels.items.len == 0) {
             if (self.hnsw_index) |*hnsw| {
-                hnsw.remove(node_id);
+                hnsw.remove(node_id) catch |err| return mapHnswError(err);
             }
         }
 
@@ -7618,4 +7627,45 @@ test "introspection: getAllLabels and getAllEdgeTypes" {
     }
     try std.testing.expectEqual(@as(u64, 1), knows_count);
     try std.testing.expectEqual(@as(u64, 2), works_at_count);
+}
+
+test "vector rebuild keeps latest records and reclaims stale entries" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_vector_rebuild_latest_test.ltdb";
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{
+            .enable_wal = false,
+            .enable_fts = false,
+            .enable_vector = true,
+            .vector_dimensions = 4,
+        },
+    });
+    defer db.close();
+
+    const node_id = try db.createNode(null, &[_][]const u8{"Embedding"});
+    const old_vector = [_]f32{ 1.0, 0.0, 0.0, 0.0 };
+    const latest_vector = [_]f32{ 0.0, 0.0, 1.0, 0.0 };
+    const orphan_vector = [_]f32{ 0.0, 1.0, 0.0, 0.0 };
+
+    const vs = &(db.vector_storage.?);
+    const old_location = try vs.store(node_id, &old_vector);
+    const latest_location = try vs.store(node_id, &latest_vector);
+    const orphan_location = try vs.store(999_999, &orphan_vector);
+
+    const hnsw = &(db.hnsw_index.?);
+    try db.rebuildHnswIndex(vs, hnsw);
+
+    try std.testing.expectEqual(@as(u64, 1), hnsw.vector_count);
+    try std.testing.expectEqual(latest_location, hnsw.getNode(node_id).?.vector_loc);
+    try std.testing.expectEqual(@as(u64, 1), try vs.count());
+    try std.testing.expectError(VectorStorageError.NotFound, vs.getVectorId(old_location));
+    try std.testing.expectError(VectorStorageError.NotFound, vs.getVectorId(orphan_location));
+
+    const stored = try vs.getByLocation(latest_location);
+    defer vs.free(stored);
+    try std.testing.expectEqualSlices(f32, &latest_vector, stored);
 }

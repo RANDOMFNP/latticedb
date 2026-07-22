@@ -97,6 +97,7 @@ const VECTOR_DATA_OFFSET: usize = @sizeOf(PageHeader) + VectorPageHeader.SIZE;
 const INLINE_VECTOR_ID_SIZE: usize = 8;
 const OVERFLOW_HEAD_RECORD_SIZE: u32 = 16;
 const OVERFLOW_LAYOUT_MAGIC: u32 = 0x564F_4631; // "VOF1"
+const DELETED_VECTOR_ID: u64 = 0;
 
 /// Vector payload overflow page header (after base PageHeader)
 const VectorOverflowPageHeader = struct {
@@ -304,14 +305,121 @@ pub const VectorStorage = struct {
 
     /// Store a vector and return its location
     pub fn store(self: *Self, vector_id: u64, vector: []const f32) VectorStorageError!VectorLocation {
-        if (vector.len != self.dimensions) {
+        if (vector_id == DELETED_VECTOR_ID or vector.len != self.dimensions) {
             return VectorStorageError.DimensionMismatch;
+        }
+
+        if (try self.findReusableLocation()) |loc| {
+            try self.writeAtLocation(loc, vector_id, vector);
+            return loc;
         }
 
         return switch (self.layout) {
             .inline_data => self.storeInline(vector_id, vector),
             .overflow => self.storeOverflow(vector_id, vector),
         };
+    }
+
+    fn findReusableLocation(self: *Self) VectorStorageError!?VectorLocation {
+        var current_page = self.first_page;
+        while (current_page != NULL_PAGE) {
+            const frame = self.bp.fetchPage(current_page, .shared) catch return VectorStorageError.BufferPoolError;
+            const vph = VectorPageHeader.read(frame.data);
+            self.validatePageHeader(vph) catch |err| {
+                self.bp.unpinPage(frame, false);
+                return err;
+            };
+
+            var slot: u16 = 0;
+            while (slot < vph.vector_count) : (slot += 1) {
+                const offset = VECTOR_DATA_OFFSET + @as(usize, slot) * self.bytes_per_vector;
+                const vector_id = std.mem.readInt(u64, frame.data[offset..][0..8], .little);
+                if (vector_id == DELETED_VECTOR_ID) {
+                    self.bp.unpinPage(frame, false);
+                    return .{ .page_id = current_page, .slot_index = slot };
+                }
+            }
+
+            current_page = vph.next_page;
+            self.bp.unpinPage(frame, false);
+        }
+        return null;
+    }
+
+    /// Replace an existing vector without allocating a new storage record.
+    pub fn update(
+        self: *Self,
+        loc: VectorLocation,
+        vector_id: u64,
+        vector: []const f32,
+    ) VectorStorageError!void {
+        if (vector_id == DELETED_VECTOR_ID or vector.len != self.dimensions) {
+            return VectorStorageError.DimensionMismatch;
+        }
+        const stored_id = try self.getVectorId(loc);
+        if (stored_id != vector_id) return VectorStorageError.NotFound;
+        try self.writeAtLocation(loc, vector_id, vector);
+    }
+
+    /// Mark a stored vector record reusable by a future insertion.
+    pub fn delete(self: *Self, loc: VectorLocation, vector_id: u64) VectorStorageError!void {
+        const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return VectorStorageError.BufferPoolError;
+        const vph = VectorPageHeader.read(frame.data);
+        self.validatePageHeader(vph) catch |err| {
+            self.bp.unpinPage(frame, false);
+            return err;
+        };
+        if (loc.slot_index >= vph.vector_count) {
+            self.bp.unpinPage(frame, false);
+            return VectorStorageError.NotFound;
+        }
+
+        const offset = VECTOR_DATA_OFFSET + @as(usize, loc.slot_index) * self.bytes_per_vector;
+        const stored_id = std.mem.readInt(u64, frame.data[offset..][0..8], .little);
+        if (stored_id != vector_id) {
+            self.bp.unpinPage(frame, false);
+            return VectorStorageError.NotFound;
+        }
+        std.mem.writeInt(u64, frame.data[offset..][0..8], DELETED_VECTOR_ID, .little);
+        self.bp.unpinPage(frame, true);
+    }
+
+    fn writeAtLocation(
+        self: *Self,
+        loc: VectorLocation,
+        vector_id: u64,
+        vector: []const f32,
+    ) VectorStorageError!void {
+        const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return VectorStorageError.BufferPoolError;
+        const vph = VectorPageHeader.read(frame.data);
+        self.validatePageHeader(vph) catch |err| {
+            self.bp.unpinPage(frame, false);
+            return err;
+        };
+        if (loc.slot_index >= vph.vector_count) {
+            self.bp.unpinPage(frame, false);
+            return VectorStorageError.NotFound;
+        }
+
+        const offset = VECTOR_DATA_OFFSET + @as(usize, loc.slot_index) * self.bytes_per_vector;
+        switch (self.layout) {
+            .inline_data => {
+                const float_offset = offset + INLINE_VECTOR_ID_SIZE;
+                for (vector, 0..) |val, i| {
+                    const byte_offset = float_offset + i * @sizeOf(f32);
+                    std.mem.writeInt(u32, frame.data[byte_offset..][0..4], @bitCast(val), .little);
+                }
+            },
+            .overflow => {
+                const first_overflow = std.mem.readInt(u32, frame.data[offset + 8 ..][0..4], .little);
+                self.writeOverflowChainAt(first_overflow, vector) catch |err| {
+                    self.bp.unpinPage(frame, false);
+                    return err;
+                };
+            },
+        }
+        std.mem.writeInt(u64, frame.data[offset..][0..8], vector_id, .little);
+        self.bp.unpinPage(frame, true);
     }
 
     fn storeInline(self: *Self, vector_id: u64, vector: []const f32) VectorStorageError!VectorLocation {
@@ -492,6 +600,36 @@ pub const VectorStorage = struct {
         return first_page;
     }
 
+    fn writeOverflowChainAt(self: *Self, first_page: PageId, vector: []const f32) VectorStorageError!void {
+        if (first_page == NULL_PAGE) return VectorStorageError.IoError;
+
+        var current_page = first_page;
+        var vector_offset: usize = 0;
+        while (vector_offset < vector.len) {
+            if (current_page == NULL_PAGE) return VectorStorageError.IoError;
+            const frame = self.bp.fetchPage(current_page, .exclusive) catch return VectorStorageError.BufferPoolError;
+            const old_header = VectorOverflowPageHeader.read(frame.data);
+            const floats_this_page = @min(OVERFLOW_FLOATS_PER_PAGE, vector.len - vector_offset);
+            const bytes_used = @as(u32, @intCast(floats_this_page)) * @as(u32, @sizeOf(f32));
+
+            initPageHeader(frame, .overflow);
+            const header = VectorOverflowPageHeader{
+                .next_page = old_header.next_page,
+                .bytes_used = bytes_used,
+            };
+            header.write(frame.data);
+            for (vector[vector_offset..][0..floats_this_page], 0..) |val, i| {
+                const byte_offset = OVERFLOW_DATA_OFFSET + i * @sizeOf(f32);
+                std.mem.writeInt(u32, frame.data[byte_offset..][0..4], @bitCast(val), .little);
+            }
+
+            vector_offset += floats_this_page;
+            current_page = old_header.next_page;
+            self.bp.unpinPage(frame, true);
+        }
+        if (current_page != NULL_PAGE) return VectorStorageError.IoError;
+    }
+
     /// Get a vector by location
     pub fn getByLocation(self: *Self, loc: VectorLocation) VectorStorageError![]f32 {
         const frame = self.bp.fetchPage(loc.page_id, .shared) catch return VectorStorageError.BufferPoolError;
@@ -653,7 +791,9 @@ pub const VectorStorage = struct {
         }
 
         const offset = VECTOR_DATA_OFFSET + @as(usize, loc.slot_index) * self.bytes_per_vector;
-        return std.mem.readInt(u64, frame.data[offset..][0..8], .little);
+        const vector_id = std.mem.readInt(u64, frame.data[offset..][0..8], .little);
+        if (vector_id == DELETED_VECTOR_ID) return VectorStorageError.NotFound;
+        return vector_id;
     }
 
     /// Free a stored vector (for future use, currently no-op)
@@ -673,7 +813,13 @@ pub const VectorStorage = struct {
                 self.bp.unpinPage(frame, false);
                 return err;
             };
-            total += vph.vector_count;
+            var slot: u16 = 0;
+            while (slot < vph.vector_count) : (slot += 1) {
+                const offset = VECTOR_DATA_OFFSET + @as(usize, slot) * self.bytes_per_vector;
+                if (std.mem.readInt(u64, frame.data[offset..][0..8], .little) != DELETED_VECTOR_ID) {
+                    total += 1;
+                }
+            }
             current_page = vph.next_page;
             self.bp.unpinPage(frame, false);
         }
@@ -705,6 +851,8 @@ pub const VectorStorage = struct {
 
                 // Read vector_id
                 const vector_id = std.mem.readInt(u64, frame.data[offset..][0..8], .little);
+
+                if (vector_id == DELETED_VECTOR_ID) continue;
 
                 self.readVectorFromHeadFrame(frame, slot, vector_buf) catch |err| {
                     self.bp.unpinPage(frame, false);
@@ -755,6 +903,8 @@ pub const VectorStorage = struct {
             while (slot < vph.vector_count) : (slot += 1) {
                 const offset = VECTOR_DATA_OFFSET + @as(usize, slot) * self.bytes_per_vector;
                 const vector_id = std.mem.readInt(u64, frame.data[offset..][0..8], .little);
+
+                if (vector_id == DELETED_VECTOR_ID) continue;
 
                 entries[index] = VectorEntry{
                     .id = vector_id,
@@ -849,6 +999,48 @@ test "vector storage store and retrieve" {
     // Verify vector ID
     const id = try storage.getVectorId(loc);
     try std.testing.expectEqual(@as(u64, 42), id);
+}
+
+test "vector storage updates and reuses deleted records" {
+    const allocator = std.testing.allocator;
+    const vfs = @import("../storage/vfs.zig");
+    const page_manager = @import("../storage/page_manager.zig");
+
+    var posix_vfs = vfs.PosixVfs.init(allocator);
+    const vfs_impl = posix_vfs.vfs();
+    const db_path = "/tmp/lattice_vector_reuse_test.db";
+    vfs_impl.delete(db_path) catch {};
+
+    var pm = try page_manager.PageManager.init(allocator, vfs_impl, db_path, .{ .create = true });
+    defer {
+        pm.deinit();
+        vfs_impl.delete(db_path) catch {};
+    }
+    var bp = try buffer_pool.BufferPool.init(allocator, &pm, 64 * 4096);
+    defer bp.deinit();
+
+    var storage = try VectorStorage.init(allocator, &bp, 4);
+    const original = [_]f32{ 1.0, 0.0, 0.0, 0.0 };
+    const replacement = [_]f32{ 0.0, 1.0, 0.0, 0.0 };
+    const reused = [_]f32{ 0.0, 0.0, 1.0, 0.0 };
+
+    const loc = try storage.store(42, &original);
+    try storage.update(loc, 42, &replacement);
+    try std.testing.expectEqual(@as(u64, 1), try storage.count());
+    const updated = try storage.getByLocation(loc);
+    defer storage.free(updated);
+    try std.testing.expectEqualSlices(f32, &replacement, updated);
+
+    try storage.delete(loc, 42);
+    try std.testing.expectEqual(@as(u64, 0), try storage.count());
+    try std.testing.expectError(VectorStorageError.NotFound, storage.getVectorId(loc));
+
+    const reused_loc = try storage.store(43, &reused);
+    try std.testing.expectEqual(loc, reused_loc);
+    try std.testing.expectEqual(@as(u64, 1), try storage.count());
+    const reused_value = try storage.getByLocation(reused_loc);
+    defer storage.free(reused_value);
+    try std.testing.expectEqualSlices(f32, &reused, reused_value);
 }
 
 test "vector storage multiple vectors" {
@@ -1000,6 +1192,19 @@ fn testLargeVectorRoundTrip(comptime dimensions: usize) !void {
         const vector_id = try storage.getVectorId(loc);
         try std.testing.expectEqual(@as(u64, 9001), vector_id);
 
+        fillLargeVector(&vector, 20.0);
+        try storage.update(loc, 9001, &vector);
+        {
+            const updated = try storage.getByLocation(loc);
+            defer storage.free(updated);
+            try expectStoredVector(updated, dimensions, 20.0);
+        }
+
+        try storage.delete(loc, 9001);
+        fillLargeVector(&vector, 30.0);
+        const reused_loc = try storage.store(9002, &vector);
+        try std.testing.expectEqual(loc, reused_loc);
+
         try bp.close();
     }
 
@@ -1014,7 +1219,8 @@ fn testLargeVectorRoundTrip(comptime dimensions: usize) !void {
         const retrieved = try storage.getByLocation(loc);
         defer storage.free(retrieved);
 
-        try expectStoredVector(retrieved, dimensions, 10.0);
+        try expectStoredVector(retrieved, dimensions, 30.0);
+        try std.testing.expectEqual(@as(u64, 9002), try storage.getVectorId(loc));
         try std.testing.expectEqual(@as(u64, 1), try storage.count());
     }
 }

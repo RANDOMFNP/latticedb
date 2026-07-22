@@ -239,6 +239,7 @@ pub const ConnectionPoolPageHeader = struct {
 
 /// Offset where slot data starts in a connection pool page
 const POOL_DATA_OFFSET: usize = @sizeOf(PageHeader) + ConnectionPoolPageHeader.SIZE;
+const FREE_CONNECTION_SLOT: u8 = 0xFF;
 
 // ============================================================================
 // Connection Pool
@@ -290,24 +291,36 @@ const ConnectionPool = struct {
         const usable = PAGE_SIZE - POOL_DATA_OFFSET;
         const max_slots: u16 = @intCast(usable / slot_size);
 
-        // Try to find a page with space in the pool for this level
+        // Reuse a released slot or append to any non-full page in this level's pool.
         if (self.pool_heads.get(max_layer)) |head_page_id| {
-            const frame = self.bp.fetchPage(head_page_id, .exclusive) catch return HnswError.BufferPoolError;
-            var hdr = ConnectionPoolPageHeader.read(frame.data);
+            var page_id = head_page_id;
+            while (page_id != NULL_PAGE) {
+                const frame = self.bp.fetchPage(page_id, .exclusive) catch return HnswError.BufferPoolError;
+                var hdr = ConnectionPoolPageHeader.read(frame.data);
 
-            if (hdr.slot_count < hdr.max_slots) {
-                const slot_index = hdr.slot_count;
-                hdr.slot_count += 1;
-                hdr.write(frame.data);
+                var slot_index: u16 = 0;
+                while (slot_index < hdr.slot_count) : (slot_index += 1) {
+                    const slot_offset = POOL_DATA_OFFSET + @as(usize, slot_index) * @as(usize, hdr.slot_size);
+                    if (frame.data[slot_offset] == FREE_CONNECTION_SLOT) {
+                        @memset(frame.data[slot_offset..][0..hdr.slot_size], 0);
+                        self.bp.unpinPage(frame, true);
+                        return .{ .page_id = page_id, .slot_index = slot_index };
+                    }
+                }
 
-                // Zero the slot
-                const slot_offset = POOL_DATA_OFFSET + @as(usize, slot_index) * @as(usize, slot_size);
-                @memset(frame.data[slot_offset..][0..slot_size], 0);
+                if (hdr.slot_count < hdr.max_slots) {
+                    slot_index = hdr.slot_count;
+                    hdr.slot_count += 1;
+                    hdr.write(frame.data);
+                    const slot_offset = POOL_DATA_OFFSET + @as(usize, slot_index) * @as(usize, hdr.slot_size);
+                    @memset(frame.data[slot_offset..][0..hdr.slot_size], 0);
+                    self.bp.unpinPage(frame, true);
+                    return .{ .page_id = page_id, .slot_index = slot_index };
+                }
 
-                self.bp.unpinPage(frame, true);
-                return ConnectionLocation{ .page_id = head_page_id, .slot_index = slot_index };
+                page_id = hdr.next_page;
+                self.bp.unpinPage(frame, false);
             }
-            self.bp.unpinPage(frame, false);
         }
 
         // Need a new page — allocate and initialize
@@ -345,6 +358,31 @@ const ConnectionPool = struct {
         self.pool_heads.put(max_layer, new_page_id) catch return HnswError.OutOfMemory;
 
         return ConnectionLocation{ .page_id = new_page_id, .slot_index = 0 };
+    }
+
+    fn resetSlot(self: *Self, loc: ConnectionLocation) HnswError!void {
+        const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return HnswError.BufferPoolError;
+        const hdr = ConnectionPoolPageHeader.read(frame.data);
+        if (loc.slot_index >= hdr.slot_count) {
+            self.bp.unpinPage(frame, false);
+            return HnswError.StorageError;
+        }
+        const slot_offset = POOL_DATA_OFFSET + @as(usize, loc.slot_index) * @as(usize, hdr.slot_size);
+        @memset(frame.data[slot_offset..][0..hdr.slot_size], 0);
+        self.bp.unpinPage(frame, true);
+    }
+
+    fn freeSlot(self: *Self, loc: ConnectionLocation) HnswError!void {
+        const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return HnswError.BufferPoolError;
+        const hdr = ConnectionPoolPageHeader.read(frame.data);
+        if (loc.slot_index >= hdr.slot_count) {
+            self.bp.unpinPage(frame, false);
+            return HnswError.StorageError;
+        }
+        const slot_offset = POOL_DATA_OFFSET + @as(usize, loc.slot_index) * @as(usize, hdr.slot_size);
+        @memset(frame.data[slot_offset..][0..hdr.slot_size], 0);
+        frame.data[slot_offset] = FREE_CONNECTION_SLOT;
+        self.bp.unpinPage(frame, true);
     }
 
     /// Read connections for a node at a specific layer from its slot
@@ -1092,10 +1130,6 @@ pub const HnswIndex = struct {
             return HnswError.DimensionMismatch;
         }
 
-        if (self.nodes.contains(vector_id)) {
-            self.remove(vector_id);
-        }
-
         // For cosine metric, normalize vector before storing so we can use
         // fast dot-product distance instead of full cosine computation.
         var norm_buf: [4096]f32 = undefined;
@@ -1105,16 +1139,75 @@ pub const HnswIndex = struct {
             break :blk norm_buf[0..vector.len];
         } else vector;
 
-        // Store the vector data
-        const vector_loc = self.vector_storage.store(vector_id, store_vector) catch return HnswError.StorageError;
+        var recycled_entry: ?HnswNodeEntry = null;
+        if (self.nodes.get(vector_id)) |existing| {
+            self.vector_storage.update(existing.vector_loc, vector_id, store_vector) catch return HnswError.StorageError;
+            recycled_entry = (try self.detach(vector_id)) orelse return HnswError.NotFound;
+            try self.connection_pool.resetSlot(existing.connections_loc);
+        }
 
-        // Assign random level
+        var owns_new_vector = false;
+        const vector_loc = if (recycled_entry) |entry|
+            entry.vector_loc
+        else blk: {
+            const loc = self.vector_storage.store(vector_id, store_vector) catch return HnswError.StorageError;
+            owns_new_vector = true;
+            break :blk loc;
+        };
+        errdefer if (owns_new_vector) self.vector_storage.delete(vector_loc, vector_id) catch {};
+
+        // Replacements retain their original level and connection slot. This avoids
+        // unbounded page growth while preserving the index's sampled level distribution.
+        const level = if (recycled_entry) |entry| entry.max_layer else self.randomLevel();
+        var owns_new_connections = false;
+        const connections_loc = if (recycled_entry) |entry|
+            entry.connections_loc
+        else blk: {
+            const loc = try self.connection_pool.allocateSlot(level);
+            owns_new_connections = true;
+            break :blk loc;
+        };
+        errdefer if (owns_new_connections) self.connection_pool.freeSlot(connections_loc) catch {};
+
+        try self.insertGraph(vector_id, vector_loc, connections_loc, level, store_vector);
+    }
+
+    /// Add an already-persisted vector to a freshly rebuilt graph without
+    /// duplicating its vector-storage record.
+    pub fn insertStored(
+        self: *Self,
+        vector_id: u64,
+        vector_loc: VectorLocation,
+        vector: []const f32,
+    ) HnswError!void {
+        if (!types.isValidVectorDimensions(self.config.dimensions) or vector.len != self.config.dimensions) {
+            return HnswError.DimensionMismatch;
+        }
+        if (self.nodes.contains(vector_id)) return HnswError.StorageError;
+        const stored_id = self.vector_storage.getVectorId(vector_loc) catch return HnswError.StorageError;
+        if (stored_id != vector_id) return HnswError.StorageError;
+
+        var norm_buf: [4096]f32 = undefined;
+        const search_vector = if (self.config.metric == .cosine) blk: {
+            @memcpy(norm_buf[0..vector.len], vector);
+            simd_distance.normalize(norm_buf[0..vector.len]);
+            break :blk norm_buf[0..vector.len];
+        } else vector;
+
         const level = self.randomLevel();
-
-        // Allocate connection slot in pool
         const connections_loc = try self.connection_pool.allocateSlot(level);
+        errdefer self.connection_pool.freeSlot(connections_loc) catch {};
+        try self.insertGraph(vector_id, vector_loc, connections_loc, level, search_vector);
+    }
 
-        // Create node entry
+    fn insertGraph(
+        self: *Self,
+        vector_id: u64,
+        vector_loc: VectorLocation,
+        connections_loc: ConnectionLocation,
+        level: u8,
+        search_vector: []const f32,
+    ) HnswError!void {
         const entry = HnswNodeEntry{
             .vector_id = vector_id,
             .max_layer = level,
@@ -1130,6 +1223,7 @@ pub const HnswIndex = struct {
             self.entry_point = vector_id;
             self.max_layer = level;
             self.vector_count = 1;
+            self.dirty = true;
             return;
         }
 
@@ -1138,7 +1232,7 @@ pub const HnswIndex = struct {
         // Phase 1: Descend from top to insertion level (greedy)
         var current_layer: i16 = @intCast(self.max_layer);
         while (current_layer > level) : (current_layer -= 1) {
-            current = try self.searchLayerGreedy(store_vector, current, @intCast(current_layer));
+            current = try self.searchLayerGreedy(search_vector, current, @intCast(current_layer));
         }
 
         // Phase 2: Insert at each layer from level down to 0
@@ -1147,7 +1241,7 @@ pub const HnswIndex = struct {
             const layer_u8: u8 = @intCast(insert_layer);
 
             // Find ef_construction nearest neighbors
-            const candidates = try self.searchLayer(store_vector, current, layer_u8, self.config.ef_construction);
+            const candidates = try self.searchLayer(search_vector, current, layer_u8, self.config.ef_construction);
             defer self.allocator.free(candidates);
 
             // Select diverse neighbors using heuristic (Algorithm 4)
@@ -1205,9 +1299,8 @@ pub const HnswIndex = struct {
         self.max_layer = if (new_entry_point == null) 0 else new_max_layer;
     }
 
-    /// Remove a vector from the index.
-    pub fn remove(self: *Self, vector_id: u64) void {
-        const removed = self.nodes.fetchRemove(vector_id) orelse return;
+    fn detach(self: *Self, vector_id: u64) HnswError!?HnswNodeEntry {
+        const removed = self.nodes.fetchRemove(vector_id) orelse return null;
         const removed_entry = removed.value;
 
         var iter = self.nodes.iterator();
@@ -1215,7 +1308,7 @@ pub const HnswIndex = struct {
             var layer: u16 = 0;
             while (layer <= entry.value_ptr.max_layer) : (layer += 1) {
                 const layer_u8: u8 = @intCast(layer);
-                const connections = self.getConnections(entry.value_ptr.connections_loc, layer_u8) catch continue;
+                const connections = try self.getConnections(entry.value_ptr.connections_loc, layer_u8);
                 defer self.allocator.free(connections);
 
                 var write_index: usize = 0;
@@ -1230,12 +1323,12 @@ pub const HnswIndex = struct {
                 }
 
                 if (found) {
-                    self.setConnections(
+                    try self.setConnections(
                         entry.value_ptr.connections_loc,
                         entry.key_ptr.*,
                         layer_u8,
                         connections[0..write_index],
-                    ) catch {};
+                    );
                 }
             }
         }
@@ -1253,6 +1346,14 @@ pub const HnswIndex = struct {
         }
 
         self.dirty = true;
+        return removed_entry;
+    }
+
+    /// Remove a vector from the index and release its storage for reuse.
+    pub fn remove(self: *Self, vector_id: u64) HnswError!void {
+        const removed_entry = (try self.detach(vector_id)) orelse return;
+        self.vector_storage.delete(removed_entry.vector_loc, vector_id) catch return HnswError.StorageError;
+        try self.connection_pool.freeSlot(removed_entry.connections_loc);
     }
 
     /// Free search results allocated by search()
@@ -1438,6 +1539,60 @@ test "inner product distance" {
     // dot = 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
     // inner product distance = -32
     try std.testing.expectApproxEqAbs(@as(f32, -32.0), innerProductDistance(&a, &b), 0.001);
+}
+
+test "hnsw replacements reuse vector and connection storage" {
+    const allocator = std.testing.allocator;
+    const vfs = lattice.storage.vfs;
+    const page_manager = lattice.storage.page_manager;
+
+    var posix_vfs = vfs.PosixVfs.init(allocator);
+    const vfs_impl = posix_vfs.vfs();
+    const db_path = "/tmp/lattice_hnsw_replace_reuse_test.db";
+    vfs_impl.delete(db_path) catch {};
+
+    var pm = try page_manager.PageManager.init(allocator, vfs_impl, db_path, .{ .create = true });
+    defer {
+        pm.deinit();
+        vfs_impl.delete(db_path) catch {};
+    }
+    var bp = try buffer_pool.BufferPool.init(allocator, &pm, 64 * 4096);
+    defer bp.deinit();
+
+    var vs = try VectorStorage.init(allocator, &bp, 4);
+    var index = HnswIndex.init(allocator, &bp, &vs, .{
+        .dimensions = 4,
+        .m = 4,
+        .m_max0 = 8,
+        .ef_construction = 16,
+        .ef_search = 8,
+    });
+    defer index.deinit();
+
+    try index.insert(1, &[_]f32{ 1.0, 0.0, 0.0, 0.0 });
+    try index.insert(2, &[_]f32{ 0.0, 1.0, 0.0, 0.0 });
+    const original_entry = index.getNode(1).?;
+    const connection_pages = index.connection_pool.total_pages;
+    const allocated_pages = pm.pageCount();
+
+    for (0..100) |i| {
+        const replacement = if (i % 2 == 0)
+            [_]f32{ 0.0, 0.0, 1.0, 0.0 }
+        else
+            [_]f32{ 0.0, 0.0, 0.0, 1.0 };
+        try index.insert(1, &replacement);
+    }
+
+    const final_entry = index.getNode(1).?;
+    try std.testing.expectEqual(original_entry.vector_loc, final_entry.vector_loc);
+    try std.testing.expectEqual(original_entry.connections_loc, final_entry.connections_loc);
+    try std.testing.expectEqual(connection_pages, index.connection_pool.total_pages);
+    try std.testing.expectEqual(allocated_pages, pm.pageCount());
+    try std.testing.expectEqual(@as(u64, 2), try vs.count());
+
+    const results = try index.search(&[_]f32{ 0.0, 0.0, 0.0, 1.0 }, 1, null);
+    defer index.freeResults(results);
+    try std.testing.expectEqual(@as(u64, 1), results[0].node_id);
 }
 
 test "hnsw index init and stats" {
