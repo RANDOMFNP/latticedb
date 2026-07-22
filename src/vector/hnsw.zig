@@ -278,25 +278,97 @@ const ConnectionPool = struct {
     /// Compute the slot size for a given max_layer.
     /// slot_size = 1 (layer_count) + (3 + m_max0 * 8) for layer 0
     ///           + level * (3 + m * 8) for upper layers
-    fn slotSizeForLevel(level: u8, m: u16, m_max0: u16) u16 {
+    fn slotSizeForLevel(level: u8, m: u16, m_max0: u16) HnswError!u16 {
         const layer0_size: u32 = 3 + @as(u32, m_max0) * 8;
         const upper_layer_size: u32 = 3 + @as(u32, m) * 8;
         const total: u32 = 1 + layer0_size + @as(u32, level) * upper_layer_size;
+        if (total > PAGE_SIZE - POOL_DATA_OFFSET or total > std.math.maxInt(u16)) {
+            return HnswError.StorageError;
+        }
         return @intCast(total);
+    }
+
+    fn maxSupportedLevel(self: *const Self) u8 {
+        const usable: u32 = PAGE_SIZE - POOL_DATA_OFFSET;
+        const base: u32 = 1 + 3 + @as(u32, self.m_max0) * 8;
+        const upper: u32 = 3 + @as(u32, self.m) * 8;
+        if (base > usable or upper == 0) return 0;
+        // Metadata stores a u8 pool count, so reserve one value and permit at
+        // most levels 0...254 (255 pools total).
+        return @intCast(@min((usable - base) / upper, std.math.maxInt(u8) - 1));
+    }
+
+    fn readPageHeader(
+        self: *const Self,
+        frame: *const buffer_pool.BufferFrame,
+        expected_level: ?u8,
+    ) HnswError!ConnectionPoolPageHeader {
+        if (frame.data[0] != @intFromEnum(page.PageType.hnsw_layer)) return HnswError.StorageError;
+        const hdr = ConnectionPoolPageHeader.read(frame.data);
+        if (expected_level) |level| {
+            if (hdr.pool_level != level) return HnswError.StorageError;
+        }
+        const expected_size = try slotSizeForLevel(hdr.pool_level, self.m, self.m_max0);
+        const expected_slots: u16 = @intCast((PAGE_SIZE - POOL_DATA_OFFSET) / expected_size);
+        if (hdr.slot_size != expected_size or hdr.max_slots != expected_slots or
+            hdr.slot_count > hdr.max_slots or hdr.max_slots == 0)
+        {
+            return HnswError.StorageError;
+        }
+        if (hdr.next_page != NULL_PAGE and !self.bp.pm.isValidPage(hdr.next_page)) {
+            return HnswError.StorageError;
+        }
+        return hdr;
+    }
+
+    fn validatePoolChain(self: *const Self, level: u8, head_page: PageId) HnswError!void {
+        var page_id = head_page;
+        var visited: u32 = 0;
+        while (page_id != NULL_PAGE) {
+            if (visited >= self.bp.pm.pageCount() or !self.bp.pm.isValidPage(page_id)) {
+                return HnswError.StorageError;
+            }
+            visited += 1;
+            const frame = self.bp.fetchPage(page_id, .shared) catch return HnswError.BufferPoolError;
+            const hdr = self.readPageHeader(frame, level) catch |err| {
+                self.bp.unpinPage(frame, false);
+                return err;
+            };
+            page_id = hdr.next_page;
+            self.bp.unpinPage(frame, false);
+        }
+    }
+
+    fn validateLocation(self: *const Self, level: u8, loc: ConnectionLocation) HnswError!void {
+        if (!self.bp.pm.isValidPage(loc.page_id)) return HnswError.StorageError;
+        const frame = self.bp.fetchPage(loc.page_id, .shared) catch return HnswError.BufferPoolError;
+        defer self.bp.unpinPage(frame, false);
+        const hdr = try self.readPageHeader(frame, level);
+        if (loc.slot_index >= hdr.slot_count) return HnswError.StorageError;
+        const slot_offset = POOL_DATA_OFFSET + @as(usize, loc.slot_index) * @as(usize, hdr.slot_size);
+        if (frame.data[slot_offset] == FREE_CONNECTION_SLOT) return HnswError.StorageError;
     }
 
     /// Allocate a slot for a node with the given max_layer.
     fn allocateSlot(self: *Self, max_layer: u8) HnswError!ConnectionLocation {
-        const slot_size = slotSizeForLevel(max_layer, self.m, self.m_max0);
+        const slot_size = try slotSizeForLevel(max_layer, self.m, self.m_max0);
         const usable = PAGE_SIZE - POOL_DATA_OFFSET;
         const max_slots: u16 = @intCast(usable / slot_size);
 
         // Reuse a released slot or append to any non-full page in this level's pool.
         if (self.pool_heads.get(max_layer)) |head_page_id| {
             var page_id = head_page_id;
+            var visited: u32 = 0;
             while (page_id != NULL_PAGE) {
+                if (visited >= self.bp.pm.pageCount() or !self.bp.pm.isValidPage(page_id)) {
+                    return HnswError.StorageError;
+                }
+                visited += 1;
                 const frame = self.bp.fetchPage(page_id, .exclusive) catch return HnswError.BufferPoolError;
-                var hdr = ConnectionPoolPageHeader.read(frame.data);
+                var hdr = self.readPageHeader(frame, max_layer) catch |err| {
+                    self.bp.unpinPage(frame, false);
+                    return err;
+                };
 
                 var slot_index: u16 = 0;
                 while (slot_index < hdr.slot_count) : (slot_index += 1) {
@@ -361,8 +433,12 @@ const ConnectionPool = struct {
     }
 
     fn resetSlot(self: *Self, loc: ConnectionLocation) HnswError!void {
+        if (!self.bp.pm.isValidPage(loc.page_id)) return HnswError.StorageError;
         const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return HnswError.BufferPoolError;
-        const hdr = ConnectionPoolPageHeader.read(frame.data);
+        const hdr = self.readPageHeader(frame, null) catch |err| {
+            self.bp.unpinPage(frame, false);
+            return err;
+        };
         if (loc.slot_index >= hdr.slot_count) {
             self.bp.unpinPage(frame, false);
             return HnswError.StorageError;
@@ -373,8 +449,12 @@ const ConnectionPool = struct {
     }
 
     fn freeSlot(self: *Self, loc: ConnectionLocation) HnswError!void {
+        if (!self.bp.pm.isValidPage(loc.page_id)) return HnswError.StorageError;
         const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return HnswError.BufferPoolError;
-        const hdr = ConnectionPoolPageHeader.read(frame.data);
+        const hdr = self.readPageHeader(frame, null) catch |err| {
+            self.bp.unpinPage(frame, false);
+            return err;
+        };
         if (loc.slot_index >= hdr.slot_count) {
             self.bp.unpinPage(frame, false);
             return HnswError.StorageError;
@@ -387,10 +467,12 @@ const ConnectionPool = struct {
 
     /// Read connections for a node at a specific layer from its slot
     fn getConnections(self: *Self, loc: ConnectionLocation, layer: u8) HnswError![]u64 {
+        if (!self.bp.pm.isValidPage(loc.page_id)) return HnswError.StorageError;
         const frame = self.bp.fetchPage(loc.page_id, .shared) catch return HnswError.BufferPoolError;
         defer self.bp.unpinPage(frame, false);
 
-        const hdr = ConnectionPoolPageHeader.read(frame.data);
+        const hdr = try self.readPageHeader(frame, null);
+        if (loc.slot_index >= hdr.slot_count or layer > hdr.pool_level) return HnswError.StorageError;
         const slot_offset = POOL_DATA_OFFSET + @as(usize, loc.slot_index) * @as(usize, hdr.slot_size);
 
         // Read layer_count at start of slot
@@ -404,9 +486,12 @@ const ConnectionPool = struct {
         const slot_end = slot_offset + @as(usize, hdr.slot_size);
         var i: u8 = 0;
         while (i < layer_count and offset < slot_end) : (i += 1) {
+            if (offset + 3 > slot_end) return HnswError.StorageError;
             const layer_num = frame.data[offset];
             const count = std.mem.readInt(u16, frame.data[offset + 1 ..][0..2], .little);
             offset += 3;
+            const neighbors_end = offset + @as(usize, count) * @sizeOf(u64);
+            if (layer_num > hdr.pool_level or neighbors_end > slot_end) return HnswError.StorageError;
 
             if (layer_num == layer) {
                 const neighbors = self.allocator.alloc(u64, count) catch return HnswError.OutOfMemory;
@@ -416,8 +501,10 @@ const ConnectionPool = struct {
                 return neighbors;
             }
 
-            offset += @as(usize, count) * 8;
+            offset = neighbors_end;
         }
+
+        if (i != layer_count) return HnswError.StorageError;
 
         return self.allocator.alloc(u64, 0) catch return HnswError.OutOfMemory;
     }
@@ -425,10 +512,12 @@ const ConnectionPool = struct {
     /// Read connections for a node at a specific layer into a caller-provided buffer.
     /// Returns a slice of buf containing the neighbor IDs.
     fn getConnectionsInto(self: *Self, loc: ConnectionLocation, layer: u8, buf: []u64) HnswError![]u64 {
+        if (!self.bp.pm.isValidPage(loc.page_id)) return HnswError.StorageError;
         const frame = self.bp.fetchPage(loc.page_id, .shared) catch return HnswError.BufferPoolError;
         defer self.bp.unpinPage(frame, false);
 
-        const hdr = ConnectionPoolPageHeader.read(frame.data);
+        const hdr = try self.readPageHeader(frame, null);
+        if (loc.slot_index >= hdr.slot_count or layer > hdr.pool_level) return HnswError.StorageError;
         const slot_offset = POOL_DATA_OFFSET + @as(usize, loc.slot_index) * @as(usize, hdr.slot_size);
 
         const layer_count = frame.data[slot_offset];
@@ -440,20 +529,26 @@ const ConnectionPool = struct {
         const slot_end = slot_offset + @as(usize, hdr.slot_size);
         var i: u8 = 0;
         while (i < layer_count and offset < slot_end) : (i += 1) {
+            if (offset + 3 > slot_end) return HnswError.StorageError;
             const layer_num = frame.data[offset];
             const count = std.mem.readInt(u16, frame.data[offset + 1 ..][0..2], .little);
             offset += 3;
+            const neighbors_end = offset + @as(usize, count) * @sizeOf(u64);
+            if (layer_num > hdr.pool_level or neighbors_end > slot_end or count > buf.len) {
+                return HnswError.StorageError;
+            }
 
             if (layer_num == layer) {
-                std.debug.assert(count <= buf.len);
                 for (0..count) |j| {
                     buf[j] = std.mem.readInt(u64, frame.data[offset + j * 8 ..][0..8], .little);
                 }
                 return buf[0..count];
             }
 
-            offset += @as(usize, count) * 8;
+            offset = neighbors_end;
         }
+
+        if (i != layer_count) return HnswError.StorageError;
 
         return buf[0..0];
     }
@@ -461,9 +556,22 @@ const ConnectionPool = struct {
     /// Write connections for a node at a specific layer into its slot
     fn setConnections(self: *Self, loc: ConnectionLocation, node_id: u64, layer: u8, neighbors: []const u64) HnswError!void {
         _ = node_id;
+        if (!self.bp.pm.isValidPage(loc.page_id)) return HnswError.StorageError;
         const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return HnswError.BufferPoolError;
 
-        const hdr = ConnectionPoolPageHeader.read(frame.data);
+        const hdr = self.readPageHeader(frame, null) catch |err| {
+            self.bp.unpinPage(frame, false);
+            return err;
+        };
+        if (loc.slot_index >= hdr.slot_count or layer > hdr.pool_level) {
+            self.bp.unpinPage(frame, false);
+            return HnswError.StorageError;
+        }
+        const max_neighbors = if (layer == 0) self.m_max0 else self.m;
+        if (neighbors.len > max_neighbors) {
+            self.bp.unpinPage(frame, false);
+            return HnswError.StorageError;
+        }
         const slot_size = @as(usize, hdr.slot_size);
         const slot_offset = POOL_DATA_OFFSET + @as(usize, loc.slot_index) * slot_size;
         const slot_end = slot_offset + slot_size;
@@ -481,22 +589,39 @@ const ConnectionPool = struct {
         // Copy existing layers (skip the one being updated)
         var i: u8 = 0;
         while (i < old_layer_count and offset < slot_end) : (i += 1) {
+            if (offset + 3 > slot_end) {
+                self.bp.unpinPage(frame, false);
+                return HnswError.StorageError;
+            }
             const layer_num = frame.data[offset];
             const count = std.mem.readInt(u16, frame.data[offset + 1 ..][0..2], .little);
+            const layer_size = 3 + @as(usize, count) * @sizeOf(u64);
+            if (layer_num > hdr.pool_level or offset + layer_size > slot_end) {
+                self.bp.unpinPage(frame, false);
+                return HnswError.StorageError;
+            }
 
             if (layer_num == layer) {
-                offset += 3 + @as(usize, count) * 8;
+                offset += layer_size;
             } else {
-                const layer_size = 3 + @as(usize, count) * 8;
                 @memcpy(rebuild_buf[rebuild_len..][0..layer_size], frame.data[offset .. offset + layer_size]);
                 rebuild_len += layer_size;
                 new_layer_count += 1;
                 offset += layer_size;
             }
         }
+        if (i != old_layer_count) {
+            self.bp.unpinPage(frame, false);
+            return HnswError.StorageError;
+        }
 
         // Add the new/updated layer
         if (neighbors.len > 0) {
+            const new_layer_size = 3 + neighbors.len * @sizeOf(u64);
+            if (1 + rebuild_len + new_layer_size > slot_size) {
+                self.bp.unpinPage(frame, false);
+                return HnswError.StorageError;
+            }
             rebuild_buf[rebuild_len] = layer;
             rebuild_len += 1;
             std.mem.writeInt(u16, rebuild_buf[rebuild_len..][0..2], @intCast(neighbors.len), .little);
@@ -508,8 +633,10 @@ const ConnectionPool = struct {
             new_layer_count += 1;
         }
 
-        // Assert data fits within slot
-        std.debug.assert(1 + rebuild_len <= slot_size);
+        if (1 + rebuild_len > slot_size) {
+            self.bp.unpinPage(frame, false);
+            return HnswError.StorageError;
+        }
 
         // Write back: layer_count + layer data + zero remaining
         frame.data[slot_offset] = new_layer_count;
@@ -600,7 +727,8 @@ pub const HnswIndex = struct {
         const r = self.rng.random().float(f32);
         if (r == 0.0) return 0;
         const level_f = -@log(r) * self.config.ml;
-        const level: u8 = @intFromFloat(@min(level_f, 255.0));
+        const max_level = self.connection_pool.maxSupportedLevel();
+        const level: u8 = @intFromFloat(@min(level_f, @as(f32, @floatFromInt(max_level))));
         return level;
     }
 
@@ -1393,21 +1521,49 @@ pub const HnswIndex = struct {
 
     /// Deserialize HNSW metadata from a buffer, restoring entry_point,
     /// max_layer, vector_count, and pool_heads.
-    fn deserializeMetadata(self: *Self, data: []const u8) void {
-        const ep = std.mem.readInt(u64, data[0..8], .little);
-        self.entry_point = if (ep == 0) null else ep;
-        self.max_layer = data[8];
-        self.vector_count = std.mem.readInt(u64, data[9..17], .little);
-
+    fn deserializeMetadata(self: *Self, data: []const u8) HnswError!void {
+        if (data.len < 18) return HnswError.StorageError;
         const pool_count = data[17];
+        const expected_len = 18 + @as(usize, pool_count) * 5;
+        if (data.len != expected_len) return HnswError.StorageError;
+
+        var seen_levels = [_]bool{false} ** 256;
         var offset: usize = 18;
         var i: u8 = 0;
         while (i < pool_count) : (i += 1) {
             const level = data[offset];
             const page_id = std.mem.readInt(u32, data[offset + 1 ..][0..4], .little);
-            self.connection_pool.pool_heads.put(level, page_id) catch {};
+            if (seen_levels[level] or level > self.connection_pool.maxSupportedLevel()) {
+                return HnswError.StorageError;
+            }
+            seen_levels[level] = true;
+            try self.connection_pool.validatePoolChain(level, page_id);
             offset += 5;
         }
+
+        const ep = std.mem.readInt(u64, data[0..8], .little);
+        self.entry_point = if (ep == 0) null else ep;
+        self.max_layer = data[8];
+        self.vector_count = std.mem.readInt(u64, data[9..17], .little);
+        if (self.max_layer > self.connection_pool.maxSupportedLevel()) return HnswError.StorageError;
+
+        offset = 18;
+        i = 0;
+        while (i < pool_count) : (i += 1) {
+            const level = data[offset];
+            const page_id = std.mem.readInt(u32, data[offset + 1 ..][0..4], .little);
+            self.connection_pool.pool_heads.put(level, page_id) catch return HnswError.OutOfMemory;
+            offset += 5;
+        }
+    }
+
+    pub fn resetForRebuild(self: *Self) void {
+        self.nodes.clearRetainingCapacity();
+        self.connection_pool.pool_heads.clearRetainingCapacity();
+        self.entry_point = null;
+        self.max_layer = 0;
+        self.vector_count = 0;
+        self.dirty = false;
     }
 
     /// Save the HNSW index state to a B+Tree for persistence.
@@ -1486,8 +1642,9 @@ pub const HnswIndex = struct {
         // Copy metadata before scanning the rest of the tree mutates iteration state.
         var meta_copy: [1300]u8 = undefined;
         const meta_len = meta_val.?.len;
+        if (meta_len > meta_copy.len) return HnswError.StorageError;
         @memcpy(meta_copy[0..meta_len], meta_val.?);
-        self.deserializeMetadata(meta_copy[0..meta_len]);
+        try self.deserializeMetadata(meta_copy[0..meta_len]);
 
         // 2. Range scan all entries
         var range_iter = tree.range(null, null) catch return HnswError.StorageError;
@@ -1504,12 +1661,45 @@ pub const HnswIndex = struct {
                 e.key[5] == 0xFF and e.key[6] == 0xFF and e.key[7] == 0xFF)
                 continue;
 
-            if (e.key.len != 8 or e.value.len != HnswNodeEntry.SERIALIZED_SIZE) continue;
+            if (e.key.len != 8 or e.value.len != HnswNodeEntry.SERIALIZED_SIZE) {
+                return HnswError.StorageError;
+            }
 
             // Deserialize into an owned struct (no pointers into B+Tree page)
             const node_entry = HnswNodeEntry.deserialize(e.value[0..HnswNodeEntry.SERIALIZED_SIZE]);
             const vector_id = std.mem.readInt(u64, e.key[0..8], .little);
+            if (node_entry.vector_id != vector_id or
+                node_entry.max_layer > self.connection_pool.maxSupportedLevel())
+            {
+                return HnswError.StorageError;
+            }
+            const stored_id = self.vector_storage.getVectorId(node_entry.vector_loc) catch return HnswError.StorageError;
+            if (stored_id != vector_id) return HnswError.StorageError;
+            try self.connection_pool.validateLocation(node_entry.max_layer, node_entry.connections_loc);
             self.nodes.put(vector_id, node_entry) catch return HnswError.OutOfMemory;
+        }
+
+        if (self.vector_count != self.nodes.count()) return HnswError.StorageError;
+        if (self.vector_count == 0) {
+            if (self.entry_point != null or self.max_layer != 0) return HnswError.StorageError;
+        } else {
+            const entry_point = self.entry_point orelse return HnswError.StorageError;
+            if (!self.nodes.contains(entry_point)) return HnswError.StorageError;
+
+            var actual_max_layer: u8 = 0;
+            var node_iter = self.nodes.iterator();
+            while (node_iter.next()) |node| {
+                actual_max_layer = @max(actual_max_layer, node.value_ptr.max_layer);
+                var layer: u16 = 0;
+                while (layer <= node.value_ptr.max_layer) : (layer += 1) {
+                    const neighbors = try self.getConnections(node.value_ptr.connections_loc, @intCast(layer));
+                    defer self.allocator.free(neighbors);
+                    for (neighbors) |neighbor| {
+                        if (!self.nodes.contains(neighbor)) return HnswError.StorageError;
+                    }
+                }
+            }
+            if (actual_max_layer != self.max_layer) return HnswError.StorageError;
         }
 
         self.dirty = false;
@@ -1539,6 +1729,39 @@ test "inner product distance" {
     // dot = 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
     // inner product distance = -32
     try std.testing.expectApproxEqAbs(@as(f32, -32.0), innerProductDistance(&a, &b), 0.001);
+}
+
+test "hnsw rejects truncated and invalid persisted metadata" {
+    const allocator = std.testing.allocator;
+    const vfs = lattice.storage.vfs;
+    const page_manager = lattice.storage.page_manager;
+
+    var posix_vfs = vfs.PosixVfs.init(allocator);
+    const vfs_impl = posix_vfs.vfs();
+    const db_path = "/tmp/lattice_hnsw_metadata_validation_test.db";
+    vfs_impl.delete(db_path) catch {};
+    var pm = try page_manager.PageManager.init(allocator, vfs_impl, db_path, .{ .create = true });
+    defer {
+        pm.deinit();
+        vfs_impl.delete(db_path) catch {};
+    }
+    var bp = try buffer_pool.BufferPool.init(allocator, &pm, 64 * 4096);
+    defer bp.deinit();
+    var vs = try VectorStorage.init(allocator, &bp, 4);
+    var index = HnswIndex.init(allocator, &bp, &vs, .{ .dimensions = 4 });
+    defer index.deinit();
+
+    try std.testing.expectError(HnswError.StorageError, index.deserializeMetadata(&[_]u8{0} ** 17));
+
+    var invalid_level = [_]u8{0} ** 18;
+    invalid_level[8] = 255;
+    try std.testing.expectError(HnswError.StorageError, index.deserializeMetadata(&invalid_level));
+
+    var invalid_pool = [_]u8{0} ** 23;
+    invalid_pool[17] = 1;
+    invalid_pool[18] = 0;
+    std.mem.writeInt(u32, invalid_pool[19..23], pm.pageCount() + 10, .little);
+    try std.testing.expectError(HnswError.StorageError, index.deserializeMetadata(&invalid_pool));
 }
 
 test "hnsw replacements reuse vector and connection storage" {

@@ -43,6 +43,8 @@ pub const VectorStorageError = error{
     StorageFull,
     /// I/O error
     IoError,
+    /// Persisted vector pages are structurally invalid
+    Corruption,
     /// Out of memory
     OutOfMemory,
     /// Buffer pool error
@@ -181,7 +183,7 @@ pub const VectorStorage = struct {
         return switch (vph._reserved) {
             0 => .inline_data,
             OVERFLOW_LAYOUT_MAGIC => .overflow,
-            else => VectorStorageError.IoError,
+            else => VectorStorageError.Corruption,
         };
     }
 
@@ -209,7 +211,21 @@ pub const VectorStorage = struct {
         const layout = try layoutFromHeader(vph);
         if (layout != self.layout) return VectorStorageError.DimensionMismatch;
         if (vph.bytes_per_vector != self.bytes_per_vector) return VectorStorageError.DimensionMismatch;
-        if (vph.vector_count > self.vectors_per_page) return VectorStorageError.IoError;
+        if (vph.vector_count > self.vectors_per_page) return VectorStorageError.Corruption;
+    }
+
+    fn readVectorPageHeader(self: *const Self, frame: *const BufferFrame) VectorStorageError!VectorPageHeader {
+        if (frame.data[0] != @intFromEnum(PageType.vector_data)) return VectorStorageError.Corruption;
+        const vph = VectorPageHeader.read(frame.data);
+        try self.validatePageHeader(vph);
+        if (vph.next_page != NULL_PAGE and !self.bp.pm.isValidPage(vph.next_page)) {
+            return VectorStorageError.Corruption;
+        }
+        return vph;
+    }
+
+    fn validatePageId(self: *const Self, page_id: PageId) VectorStorageError!void {
+        if (!self.bp.pm.isValidPage(page_id)) return VectorStorageError.Corruption;
     }
 
     pub fn usesOverflowPages(self: *const Self) bool {
@@ -254,6 +270,7 @@ pub const VectorStorage = struct {
     /// Open existing vector storage from a known first page
     pub fn open(allocator: Allocator, bp: *BufferPool, first_page: PageId, dimensions: u16) !Self {
         try validateDimensions(dimensions);
+        if (!bp.pm.isValidPage(first_page)) return VectorStorageError.Corruption;
 
         const expected_layout = layoutForDimensions(dimensions);
         const bytes_per_vector = bytesPerRecord(dimensions, expected_layout);
@@ -270,33 +287,23 @@ pub const VectorStorage = struct {
             .layout = expected_layout,
         };
 
-        // Validate the existing page and find last page in chain
+        // Validate the page chain and find its tail. A valid chain cannot visit
+        // more pages than the database file contains, which also catches cycles.
         var last_page = first_page;
-        {
-            const frame = bp.fetchPage(first_page, .shared) catch return VectorStorageError.BufferPoolError;
-
-            // Read and validate header
-            const vph = VectorPageHeader.read(frame.data);
-            storage.validatePageHeader(vph) catch |err| {
+        var current_page = first_page;
+        var visited: u32 = 0;
+        const page_count = bp.pm.pageCount();
+        while (current_page != NULL_PAGE) {
+            if (visited >= page_count) return VectorStorageError.Corruption;
+            visited += 1;
+            const frame = bp.fetchPage(current_page, .shared) catch return VectorStorageError.BufferPoolError;
+            const vph = storage.readVectorPageHeader(frame) catch |err| {
                 bp.unpinPage(frame, false);
                 return err;
             };
-
-            var next = vph.next_page;
+            last_page = current_page;
+            current_page = vph.next_page;
             bp.unpinPage(frame, false);
-
-            // Walk chain to find last page
-            while (next != NULL_PAGE) {
-                last_page = next;
-                const f = bp.fetchPage(next, .shared) catch return VectorStorageError.BufferPoolError;
-                const next_vph = VectorPageHeader.read(f.data);
-                storage.validatePageHeader(next_vph) catch |err| {
-                    bp.unpinPage(f, false);
-                    return err;
-                };
-                next = next_vph.next_page;
-                bp.unpinPage(f, false);
-            }
         }
 
         storage.last_page = last_page;
@@ -324,8 +331,7 @@ pub const VectorStorage = struct {
         var current_page = self.first_page;
         while (current_page != NULL_PAGE) {
             const frame = self.bp.fetchPage(current_page, .shared) catch return VectorStorageError.BufferPoolError;
-            const vph = VectorPageHeader.read(frame.data);
-            self.validatePageHeader(vph) catch |err| {
+            const vph = self.readVectorPageHeader(frame) catch |err| {
                 self.bp.unpinPage(frame, false);
                 return err;
             };
@@ -364,8 +370,7 @@ pub const VectorStorage = struct {
     /// Mark a stored vector record reusable by a future insertion.
     pub fn delete(self: *Self, loc: VectorLocation, vector_id: u64) VectorStorageError!void {
         const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return VectorStorageError.BufferPoolError;
-        const vph = VectorPageHeader.read(frame.data);
-        self.validatePageHeader(vph) catch |err| {
+        const vph = self.readVectorPageHeader(frame) catch |err| {
             self.bp.unpinPage(frame, false);
             return err;
         };
@@ -391,8 +396,7 @@ pub const VectorStorage = struct {
         vector: []const f32,
     ) VectorStorageError!void {
         const frame = self.bp.fetchPage(loc.page_id, .exclusive) catch return VectorStorageError.BufferPoolError;
-        const vph = VectorPageHeader.read(frame.data);
-        self.validatePageHeader(vph) catch |err| {
+        const vph = self.readVectorPageHeader(frame) catch |err| {
             self.bp.unpinPage(frame, false);
             return err;
         };
@@ -430,8 +434,7 @@ pub const VectorStorage = struct {
         var frame = self.bp.fetchPage(current_page, .exclusive) catch return VectorStorageError.BufferPoolError;
 
         while (true) {
-            var vph = VectorPageHeader.read(frame.data);
-            self.validatePageHeader(vph) catch |err| {
+            var vph = self.readVectorPageHeader(frame) catch |err| {
                 self.bp.unpinPage(frame, false);
                 return err;
             };
@@ -500,8 +503,7 @@ pub const VectorStorage = struct {
         var frame = self.bp.fetchPage(current_page, .exclusive) catch return VectorStorageError.BufferPoolError;
 
         while (true) {
-            var vph = VectorPageHeader.read(frame.data);
-            self.validatePageHeader(vph) catch |err| {
+            var vph = self.readVectorPageHeader(frame) catch |err| {
                 self.bp.unpinPage(frame, false);
                 return err;
             };
@@ -601,14 +603,23 @@ pub const VectorStorage = struct {
     }
 
     fn writeOverflowChainAt(self: *Self, first_page: PageId, vector: []const f32) VectorStorageError!void {
-        if (first_page == NULL_PAGE) return VectorStorageError.IoError;
+        if (first_page == NULL_PAGE) return VectorStorageError.Corruption;
 
         var current_page = first_page;
         var vector_offset: usize = 0;
         while (vector_offset < vector.len) {
-            if (current_page == NULL_PAGE) return VectorStorageError.IoError;
+            if (current_page == NULL_PAGE) return VectorStorageError.Corruption;
+            try self.validatePageId(current_page);
             const frame = self.bp.fetchPage(current_page, .exclusive) catch return VectorStorageError.BufferPoolError;
+            if (frame.data[0] != @intFromEnum(PageType.overflow)) {
+                self.bp.unpinPage(frame, false);
+                return VectorStorageError.Corruption;
+            }
             const old_header = VectorOverflowPageHeader.read(frame.data);
+            if (old_header.next_page != NULL_PAGE and !self.bp.pm.isValidPage(old_header.next_page)) {
+                self.bp.unpinPage(frame, false);
+                return VectorStorageError.Corruption;
+            }
             const floats_this_page = @min(OVERFLOW_FLOATS_PER_PAGE, vector.len - vector_offset);
             const bytes_used = @as(u32, @intCast(floats_this_page)) * @as(u32, @sizeOf(f32));
 
@@ -627,7 +638,7 @@ pub const VectorStorage = struct {
             current_page = old_header.next_page;
             self.bp.unpinPage(frame, true);
         }
-        if (current_page != NULL_PAGE) return VectorStorageError.IoError;
+        if (current_page != NULL_PAGE) return VectorStorageError.Corruption;
     }
 
     /// Get a vector by location
@@ -635,8 +646,7 @@ pub const VectorStorage = struct {
         const frame = self.bp.fetchPage(loc.page_id, .shared) catch return VectorStorageError.BufferPoolError;
         defer self.bp.unpinPage(frame, false);
 
-        const vph = VectorPageHeader.read(frame.data);
-        try self.validatePageHeader(vph);
+        const vph = try self.readVectorPageHeader(frame);
 
         if (loc.slot_index >= vph.vector_count) {
             return VectorStorageError.NotFound;
@@ -658,6 +668,9 @@ pub const VectorStorage = struct {
         std.debug.assert(result.len == self.dimensions);
 
         const offset = VECTOR_DATA_OFFSET + @as(usize, slot_index) * self.bytes_per_vector;
+        if (std.mem.readInt(u64, frame.data[offset..][0..8], .little) == DELETED_VECTOR_ID) {
+            return VectorStorageError.NotFound;
+        }
 
         switch (self.layout) {
             .inline_data => {
@@ -677,21 +690,36 @@ pub const VectorStorage = struct {
     }
 
     fn readOverflowChain(self: *Self, first_page: PageId, result: []f32) VectorStorageError!void {
-        if (first_page == NULL_PAGE) return VectorStorageError.IoError;
+        if (first_page == NULL_PAGE) return VectorStorageError.Corruption;
 
         var current_page = first_page;
         var vector_offset: usize = 0;
 
         while (current_page != NULL_PAGE and vector_offset < result.len) {
+            try self.validatePageId(current_page);
             const frame = self.bp.fetchPage(current_page, .shared) catch return VectorStorageError.BufferPoolError;
+            if (frame.data[0] != @intFromEnum(PageType.overflow)) {
+                self.bp.unpinPage(frame, false);
+                return VectorStorageError.Corruption;
+            }
             const oph = VectorOverflowPageHeader.read(frame.data);
 
             if (oph.bytes_used > OVERFLOW_DATA_CAPACITY or oph.bytes_used % @sizeOf(f32) != 0) {
                 self.bp.unpinPage(frame, false);
-                return VectorStorageError.IoError;
+                return VectorStorageError.Corruption;
             }
 
-            const floats_in_page = @min(@as(usize, oph.bytes_used) / @sizeOf(f32), result.len - vector_offset);
+            const expected_floats = @min(OVERFLOW_FLOATS_PER_PAGE, result.len - vector_offset);
+            const expected_bytes = @as(u32, @intCast(expected_floats)) * @as(u32, @sizeOf(f32));
+            if (oph.bytes_used != expected_bytes) {
+                self.bp.unpinPage(frame, false);
+                return VectorStorageError.Corruption;
+            }
+            if (oph.next_page != NULL_PAGE and !self.bp.pm.isValidPage(oph.next_page)) {
+                self.bp.unpinPage(frame, false);
+                return VectorStorageError.Corruption;
+            }
+            const floats_in_page = expected_floats;
             for (0..floats_in_page) |i| {
                 const byte_offset = OVERFLOW_DATA_OFFSET + i * @sizeOf(f32);
                 const bits = std.mem.readInt(u32, frame.data[byte_offset..][0..4], .little);
@@ -703,8 +731,8 @@ pub const VectorStorage = struct {
             self.bp.unpinPage(frame, false);
         }
 
-        if (vector_offset != result.len) {
-            return VectorStorageError.IoError;
+        if (vector_offset != result.len or current_page != NULL_PAGE) {
+            return VectorStorageError.Corruption;
         }
     }
 
@@ -735,8 +763,7 @@ pub const VectorStorage = struct {
         const frame = self.bp.fetchPage(loc.page_id, .shared) catch return VectorStorageError.BufferPoolError;
         // No defer unpin — caller must release
 
-        const vph = VectorPageHeader.read(frame.data);
-        self.validatePageHeader(vph) catch |err| {
+        const vph = self.readVectorPageHeader(frame) catch |err| {
             self.bp.unpinPage(frame, false);
             return err;
         };
@@ -783,8 +810,7 @@ pub const VectorStorage = struct {
         const frame = self.bp.fetchPage(loc.page_id, .shared) catch return VectorStorageError.BufferPoolError;
         defer self.bp.unpinPage(frame, false);
 
-        const vph = VectorPageHeader.read(frame.data);
-        try self.validatePageHeader(vph);
+        const vph = try self.readVectorPageHeader(frame);
 
         if (loc.slot_index >= vph.vector_count) {
             return VectorStorageError.NotFound;
@@ -808,8 +834,7 @@ pub const VectorStorage = struct {
 
         while (current_page != NULL_PAGE) {
             const frame = self.bp.fetchPage(current_page, .shared) catch return VectorStorageError.BufferPoolError;
-            const vph = VectorPageHeader.read(frame.data);
-            self.validatePageHeader(vph) catch |err| {
+            const vph = self.readVectorPageHeader(frame) catch |err| {
                 self.bp.unpinPage(frame, false);
                 return err;
             };
@@ -838,8 +863,7 @@ pub const VectorStorage = struct {
 
         while (current_page != NULL_PAGE) {
             const frame = self.bp.fetchPage(current_page, .shared) catch return VectorStorageError.BufferPoolError;
-            const vph = VectorPageHeader.read(frame.data);
-            self.validatePageHeader(vph) catch |err| {
+            const vph = self.readVectorPageHeader(frame) catch |err| {
                 self.bp.unpinPage(frame, false);
                 return err;
             };
@@ -893,8 +917,7 @@ pub const VectorStorage = struct {
 
         while (current_page != NULL_PAGE) {
             const frame = self.bp.fetchPage(current_page, .shared) catch return VectorStorageError.BufferPoolError;
-            const vph = VectorPageHeader.read(frame.data);
-            self.validatePageHeader(vph) catch |err| {
+            const vph = self.readVectorPageHeader(frame) catch |err| {
                 self.bp.unpinPage(frame, false);
                 return err;
             };
@@ -955,6 +978,79 @@ test "vector storage init" {
     // Verify we can count vectors (should be 0)
     const cnt = try vs.count();
     try std.testing.expectEqual(@as(u64, 0), cnt);
+}
+
+test "vector storage rejects corrupt page chains" {
+    const allocator = std.testing.allocator;
+    const vfs = @import("../storage/vfs.zig");
+    const page_manager = @import("../storage/page_manager.zig");
+
+    var posix_vfs = vfs.PosixVfs.init(allocator);
+    const vfs_impl = posix_vfs.vfs();
+    const db_path = "/tmp/lattice_vector_corrupt_chain_test.db";
+    vfs_impl.delete(db_path) catch {};
+    var pm = try page_manager.PageManager.init(allocator, vfs_impl, db_path, .{ .create = true });
+    defer {
+        pm.deinit();
+        vfs_impl.delete(db_path) catch {};
+    }
+    var bp = try buffer_pool.BufferPool.init(allocator, &pm, 64 * 4096);
+    defer bp.deinit();
+
+    const storage = try VectorStorage.init(allocator, &bp, 4);
+    const frame = try bp.fetchPage(storage.first_page, .exclusive);
+    var header = VectorPageHeader.read(frame.data);
+    header.next_page = storage.first_page;
+    header.write(frame.data);
+    bp.unpinPage(frame, true);
+
+    try std.testing.expectError(
+        VectorStorageError.Corruption,
+        VectorStorage.open(allocator, &bp, storage.first_page, 4),
+    );
+}
+
+test "vector storage rejects cyclic overflow payloads" {
+    const allocator = std.testing.allocator;
+    const vfs = @import("../storage/vfs.zig");
+    const page_manager = @import("../storage/page_manager.zig");
+
+    var posix_vfs = vfs.PosixVfs.init(allocator);
+    const vfs_impl = posix_vfs.vfs();
+    const db_path = "/tmp/lattice_vector_corrupt_overflow_test.db";
+    vfs_impl.delete(db_path) catch {};
+    var pm = try page_manager.PageManager.init(allocator, vfs_impl, db_path, .{ .create = true });
+    defer {
+        pm.deinit();
+        vfs_impl.delete(db_path) catch {};
+    }
+    var bp = try buffer_pool.BufferPool.init(allocator, &pm, 64 * 4096);
+    defer bp.deinit();
+
+    var storage = try VectorStorage.init(allocator, &bp, 1536);
+    var vector: [1536]f32 = undefined;
+    fillLargeVector(&vector, 1.0);
+    const loc = try storage.store(7, &vector);
+
+    const head_frame = try bp.fetchPage(loc.page_id, .shared);
+    const record_offset = VECTOR_DATA_OFFSET + @as(usize, loc.slot_index) * storage.bytes_per_vector;
+    var overflow_page = std.mem.readInt(u32, head_frame.data[record_offset + 8 ..][0..4], .little);
+    bp.unpinPage(head_frame, false);
+
+    while (true) {
+        const overflow_frame = try bp.fetchPage(overflow_page, .exclusive);
+        var overflow_header = VectorOverflowPageHeader.read(overflow_frame.data);
+        if (overflow_header.next_page == NULL_PAGE) {
+            overflow_header.next_page = overflow_page;
+            overflow_header.write(overflow_frame.data);
+            bp.unpinPage(overflow_frame, true);
+            break;
+        }
+        overflow_page = overflow_header.next_page;
+        bp.unpinPage(overflow_frame, false);
+    }
+
+    try std.testing.expectError(VectorStorageError.Corruption, storage.getByLocation(loc));
 }
 
 test "vector storage store and retrieve" {

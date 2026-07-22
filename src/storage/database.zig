@@ -919,7 +919,9 @@ pub const Database = struct {
                         if (self.hnsw_node_tree) |*tree| {
                             if (hnsw.loadFromTree(tree)) |ok| {
                                 loaded = ok;
-                            } else |_| {}
+                            } else |_| {
+                                hnsw.resetForRebuild();
+                            }
                         }
                         if (!loaded) {
                             try self.rebuildHnswIndex(vs, hnsw);
@@ -2475,6 +2477,7 @@ pub const Database = struct {
             => DatabaseError.InvalidArgument,
             VectorStorageError.OutOfMemory => DatabaseError.OutOfMemory,
             VectorStorageError.StorageFull => DatabaseError.BufferPoolFull,
+            VectorStorageError.Corruption => DatabaseError.InvalidDatabase,
             else => DatabaseError.IoError,
         };
     }
