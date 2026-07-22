@@ -62,6 +62,12 @@ pub const EdgeRefIterator = edge_mod.EdgeStore.EdgeRefIterator;
 const label_index_mod = lattice.graph.label_index;
 const LabelIndex = label_index_mod.LabelIndex;
 
+const property_index_mod = lattice.graph.property_index;
+const PropertyIndex = property_index_mod.PropertyIndex;
+const PropertyIndexError = property_index_mod.PropertyIndexError;
+const PropertyIndexDefinition = property_index_mod.Definition;
+const PropertyIndexEntityKind = property_index_mod.EntityKind;
+
 const adjacency_cache_mod = lattice.graph.adjacency_cache;
 const AdjacencyCache = adjacency_cache_mod.AdjacencyCache;
 pub const CachedEdge = adjacency_cache_mod.CachedEdge;
@@ -137,6 +143,8 @@ pub const DatabaseError = error{
     /// Serialized node/edge payload exceeds the B-tree value limit or could
     /// not be represented by the on-disk value layout.
     ValueTooLarge,
+    /// The requested explicit property index does not exist.
+    MissingIndex,
 };
 
 /// Query execution errors
@@ -410,6 +418,16 @@ fn mapTxnError(err: TxnError) DatabaseError {
         TxnError.WalError => DatabaseError.IoError,
         TxnError.Conflict => DatabaseError.TransactionConflict,
         TxnError.OutOfMemory => DatabaseError.OutOfMemory,
+    };
+}
+
+fn mapPropertyIndexError(err: PropertyIndexError) DatabaseError {
+    return switch (err) {
+        PropertyIndexError.NotFound => DatabaseError.MissingIndex,
+        PropertyIndexError.AlreadyExists => DatabaseError.AlreadyExists,
+        PropertyIndexError.OutOfMemory => DatabaseError.OutOfMemory,
+        PropertyIndexError.InvalidData => DatabaseError.InvalidDatabase,
+        PropertyIndexError.IoError => DatabaseError.IoError,
     };
 }
 
@@ -706,12 +724,16 @@ pub const Database = struct {
     stream_meta_tree: ?BTree,
     stream_events_tree: ?BTree,
     stream_offsets_tree: ?BTree,
+    property_index_catalog_tree: ?BTree,
+    node_property_index_tree: ?BTree,
+    edge_property_index_tree: ?BTree,
 
     // Graph stores
     symbol_table: SymbolTable,
     node_store: NodeStore,
     edge_store: EdgeStore,
     label_index: LabelIndex,
+    property_index: ?PropertyIndex,
 
     // Indexes
     fts_index: ?FtsIndex,
@@ -822,6 +844,9 @@ pub const Database = struct {
         self.stream_meta_tree = null;
         self.stream_events_tree = null;
         self.stream_offsets_tree = null;
+        self.property_index_catalog_tree = null;
+        self.node_property_index_tree = null;
+        self.edge_property_index_tree = null;
         self.stream_mutex = .{};
         self.stream_cond = .{};
 
@@ -837,6 +862,7 @@ pub const Database = struct {
 
         if (!options.read_only) {
             try self.ensureStreamTreesForWrite();
+            try self.ensurePropertyIndexTreesForWrite();
         }
 
         // 6. Initialize Symbol Table
@@ -846,6 +872,7 @@ pub const Database = struct {
         self.node_store = NodeStore.init(allocator, &self.node_tree);
         self.edge_store = EdgeStore.init(allocator, &self.edge_tree, &self.edge_id_tree);
         self.label_index = LabelIndex.init(allocator, &self.label_tree);
+        self.initializePropertyIndex();
 
         // 7b. Run WAL recovery if needed
         if (self.wal) |*wal| {
@@ -862,6 +889,7 @@ pub const Database = struct {
             };
             // Persist recovered state if any redo operations were applied
             if (stats.redo_operations > 0) {
+                try self.rebuildPropertyIndexes();
                 self.saveTreeRoots() catch {};
             }
         }
@@ -1731,6 +1759,34 @@ pub const Database = struct {
         }
     }
 
+    fn replaceNodePropertyIndex(
+        self: *Self,
+        node_id: NodeId,
+        old_labels: []const symbols_mod.SymbolId,
+        old_properties: []const node_mod.Property,
+        new_labels: []const symbols_mod.SymbolId,
+        new_properties: []const node_mod.Property,
+    ) DatabaseError!void {
+        if (self.property_index) |*index| {
+            index.removeNode(node_id, old_labels, old_properties) catch |err| return mapPropertyIndexError(err);
+            index.indexNode(node_id, new_labels, new_properties) catch |err| return mapPropertyIndexError(err);
+        }
+    }
+
+    fn replaceEdgePropertyIndex(
+        self: *Self,
+        edge_id: EdgeId,
+        old_type: symbols_mod.SymbolId,
+        old_properties: []const node_mod.Property,
+        new_type: symbols_mod.SymbolId,
+        new_properties: []const node_mod.Property,
+    ) DatabaseError!void {
+        if (self.property_index) |*index| {
+            index.removeEdge(edge_id, old_type, old_properties) catch |err| return mapPropertyIndexError(err);
+            index.indexEdge(edge_id, new_type, new_properties) catch |err| return mapPropertyIndexError(err);
+        }
+    }
+
     fn applyNodeState(self: *Self, node_id: NodeId, state: TxnNodeState) DatabaseError!void {
         const current = try self.readBaseNodeState(node_id);
         defer if (current) |existing| {
@@ -1747,6 +1803,9 @@ pub const Database = struct {
                     node_mod.NodeError.NotFound => {},
                     else => return DatabaseError.IoError,
                 };
+                if (self.property_index) |*index| {
+                    index.removeNode(node_id, existing.labels, existing.properties) catch |err| return mapPropertyIndexError(err);
+                }
             }
             return;
         }
@@ -1766,6 +1825,10 @@ pub const Database = struct {
                     self.label_index.add(label_id, node_id) catch return DatabaseError.IoError;
                 }
             }
+            if (self.property_index) |*index| {
+                index.removeNode(node_id, existing.labels, existing.properties) catch |err| return mapPropertyIndexError(err);
+                index.indexNode(node_id, state.labels, state.properties) catch |err| return mapPropertyIndexError(err);
+            }
             return;
         }
 
@@ -1774,6 +1837,9 @@ pub const Database = struct {
         };
         for (state.labels) |label_id| {
             self.label_index.add(label_id, node_id) catch return DatabaseError.IoError;
+        }
+        if (self.property_index) |*index| {
+            index.indexNode(node_id, state.labels, state.properties) catch |err| return mapPropertyIndexError(err);
         }
     }
 
@@ -1790,6 +1856,10 @@ pub const Database = struct {
                     edge_mod.EdgeError.NotFound => {},
                     else => return DatabaseError.IoError,
                 };
+                if (self.property_index) |*index| {
+                    const existing = current.?;
+                    index.removeEdge(edge_id, existing.edge_type, existing.properties) catch |err| return mapPropertyIndexError(err);
+                }
             }
             return;
         }
@@ -1808,6 +1878,12 @@ pub const Database = struct {
         self.edge_store.createWithId(edge_id, state.source, state.target, state.edge_type, state.properties) catch |err| {
             return mapEdgeStoreError(err);
         };
+        if (self.property_index) |*index| {
+            if (current) |existing| {
+                index.removeEdge(edge_id, existing.edge_type, existing.properties) catch |err| return mapPropertyIndexError(err);
+            }
+            index.indexEdge(edge_id, state.edge_type, state.properties) catch |err| return mapPropertyIndexError(err);
+        }
     }
 
     /// Execute a single undo operation
@@ -2155,6 +2231,15 @@ pub const Database = struct {
         self.stream_offsets_tree = BTree.init(self.allocator, &self.buffer_pool) catch {
             return DatabaseError.TreeInitFailed;
         };
+        self.property_index_catalog_tree = BTree.init(self.allocator, &self.buffer_pool) catch {
+            return DatabaseError.TreeInitFailed;
+        };
+        self.node_property_index_tree = BTree.init(self.allocator, &self.buffer_pool) catch {
+            return DatabaseError.TreeInitFailed;
+        };
+        self.edge_property_index_tree = BTree.init(self.allocator, &self.buffer_pool) catch {
+            return DatabaseError.TreeInitFailed;
+        };
 
         // Save root pages to header
         try self.saveTreeRoots();
@@ -2257,6 +2342,56 @@ pub const Database = struct {
             BTree.open(self.allocator, &self.buffer_pool, stream_offsets_root)
         else
             null;
+
+        const property_catalog_root = header.getTreeRoot(.property_index_catalog);
+        self.property_index_catalog_tree = if (property_catalog_root != NULL_PAGE)
+            BTree.open(self.allocator, &self.buffer_pool, property_catalog_root)
+        else
+            null;
+        const node_property_root = header.getTreeRoot(.node_property_index);
+        self.node_property_index_tree = if (node_property_root != NULL_PAGE)
+            BTree.open(self.allocator, &self.buffer_pool, node_property_root)
+        else
+            null;
+        const edge_property_root = header.getTreeRoot(.edge_property_index);
+        self.edge_property_index_tree = if (edge_property_root != NULL_PAGE)
+            BTree.open(self.allocator, &self.buffer_pool, edge_property_root)
+        else
+            null;
+    }
+
+    fn ensurePropertyIndexTreesForWrite(self: *Self) DatabaseError!void {
+        if (self.read_only) return DatabaseError.ReadOnly;
+        var created = false;
+        if (self.property_index_catalog_tree == null) {
+            self.property_index_catalog_tree = BTree.init(self.allocator, &self.buffer_pool) catch return DatabaseError.TreeInitFailed;
+            created = true;
+        }
+        if (self.node_property_index_tree == null) {
+            self.node_property_index_tree = BTree.init(self.allocator, &self.buffer_pool) catch return DatabaseError.TreeInitFailed;
+            created = true;
+        }
+        if (self.edge_property_index_tree == null) {
+            self.edge_property_index_tree = BTree.init(self.allocator, &self.buffer_pool) catch return DatabaseError.TreeInitFailed;
+            created = true;
+        }
+        if (created) try self.saveTreeRoots();
+    }
+
+    fn initializePropertyIndex(self: *Self) void {
+        const catalog = if (self.property_index_catalog_tree) |*tree| tree else {
+            self.property_index = null;
+            return;
+        };
+        const nodes = if (self.node_property_index_tree) |*tree| tree else {
+            self.property_index = null;
+            return;
+        };
+        const edges = if (self.edge_property_index_tree) |*tree| tree else {
+            self.property_index = null;
+            return;
+        };
+        self.property_index = PropertyIndex.init(self.allocator, catalog, nodes, edges);
     }
 
     fn ensureStreamTreesForWrite(self: *Self) DatabaseError!void {
@@ -2331,6 +2466,15 @@ pub const Database = struct {
         if (self.stream_offsets_tree) |*tree| {
             header.setTreeRoot(.stream_offsets, tree.getRootPage());
         }
+        if (self.property_index_catalog_tree) |*tree| {
+            header.setTreeRoot(.property_index_catalog, tree.getRootPage());
+        }
+        if (self.node_property_index_tree) |*tree| {
+            header.setTreeRoot(.node_property_index, tree.getRootPage());
+        }
+        if (self.edge_property_index_tree) |*tree| {
+            header.setTreeRoot(.edge_property_index, tree.getRootPage());
+        }
 
         // Save vector storage first page for persistence
         if (self.vector_storage) |vs| {
@@ -2340,6 +2484,228 @@ pub const Database = struct {
         self.page_manager.updateHeader(&header) catch {
             return DatabaseError.IoError;
         };
+    }
+
+    fn propertyIndexDefinition(
+        self: *Self,
+        kind: PropertyIndexEntityKind,
+        scope: []const u8,
+        property: []const u8,
+        create_symbols: bool,
+    ) DatabaseError!PropertyIndexDefinition {
+        const scope_id = if (create_symbols)
+            self.symbol_table.intern(scope) catch return DatabaseError.IoError
+        else
+            self.symbol_table.lookup(scope) catch |err| switch (err) {
+                symbols_mod.SymbolError.NotFound => return DatabaseError.MissingIndex,
+                else => return DatabaseError.IoError,
+            };
+        const property_id = if (create_symbols)
+            self.symbol_table.intern(property) catch return DatabaseError.IoError
+        else
+            self.symbol_table.lookup(property) catch |err| switch (err) {
+                symbols_mod.SymbolError.NotFound => return DatabaseError.MissingIndex,
+                else => return DatabaseError.IoError,
+            };
+        return .{ .kind = kind, .scope_id = scope_id, .property_id = property_id };
+    }
+
+    fn populatePropertyIndexDefinition(self: *Self, definition: PropertyIndexDefinition) DatabaseError!void {
+        var index = &(self.property_index orelse return DatabaseError.MissingIndex);
+        switch (definition.kind) {
+            .node => {
+                const node_ids = self.label_index.getNodesByLabel(definition.scope_id) catch return DatabaseError.IoError;
+                defer self.allocator.free(node_ids);
+                for (node_ids) |node_id| {
+                    var state = (try self.readBaseNodeState(node_id)) orelse continue;
+                    defer state.deinit(self.allocator);
+                    if (findPropertyById(state.properties, definition.property_id)) |property| {
+                        index.add(definition, node_id, property.value) catch |err| return mapPropertyIndexError(err);
+                    }
+                }
+            },
+            .edge => {
+                var iter = self.edge_store.scanRefs() catch return DatabaseError.IoError;
+                defer iter.deinit();
+                while (iter.next() catch return DatabaseError.IoError) |edge_ref| {
+                    if (edge_ref.edge_type != definition.scope_id) continue;
+                    var state = (try self.readBaseEdgeState(edge_ref.id)) orelse continue;
+                    defer state.deinit(self.allocator);
+                    if (findPropertyById(state.properties, definition.property_id)) |property| {
+                        index.add(definition, edge_ref.id, property.value) catch |err| return mapPropertyIndexError(err);
+                    }
+                }
+            },
+        }
+    }
+
+    fn rebuildPropertyIndexes(self: *Self) DatabaseError!void {
+        var index = if (self.property_index) |*property_index| property_index else return;
+        inline for (.{ PropertyIndexEntityKind.node, PropertyIndexEntityKind.edge }) |kind| {
+            var iter = index.definitionIterator(kind) catch |err| return mapPropertyIndexError(err);
+            defer iter.deinit();
+            while (PropertyIndex.nextDefinition(&iter) catch |err| return mapPropertyIndexError(err)) |definition| {
+                index.clearEntries(definition) catch |err| return mapPropertyIndexError(err);
+                try self.populatePropertyIndexDefinition(definition);
+            }
+        }
+    }
+
+    fn createPropertyIndex(
+        self: *Self,
+        kind: PropertyIndexEntityKind,
+        scope: []const u8,
+        property: []const u8,
+    ) DatabaseError!void {
+        if (self.read_only) return DatabaseError.ReadOnly;
+        if (scope.len == 0 or property.len == 0) return DatabaseError.InvalidArgument;
+        if (self.active_writer_txn_id != null) return DatabaseError.TransactionConflict;
+        try self.ensurePropertyIndexTreesForWrite();
+        self.initializePropertyIndex();
+
+        const definition = try self.propertyIndexDefinition(kind, scope, property, true);
+        var index = &(self.property_index orelse return DatabaseError.IoError);
+        if (index.hasDefinition(definition) catch |err| return mapPropertyIndexError(err)) {
+            return DatabaseError.AlreadyExists;
+        }
+        index.clearEntries(definition) catch |err| return mapPropertyIndexError(err);
+        try self.populatePropertyIndexDefinition(definition);
+        index.createDefinition(definition) catch |err| return mapPropertyIndexError(err);
+        try self.saveTreeRoots();
+        if (self.query_cache) |cache| cache.bumpSchemaVersion();
+    }
+
+    fn dropPropertyIndex(
+        self: *Self,
+        kind: PropertyIndexEntityKind,
+        scope: []const u8,
+        property: []const u8,
+    ) DatabaseError!void {
+        if (self.read_only) return DatabaseError.ReadOnly;
+        if (scope.len == 0 or property.len == 0) return DatabaseError.InvalidArgument;
+        if (self.active_writer_txn_id != null) return DatabaseError.TransactionConflict;
+        const definition = try self.propertyIndexDefinition(kind, scope, property, false);
+        var index = &(self.property_index orelse return DatabaseError.MissingIndex);
+        index.dropDefinition(definition) catch |err| return mapPropertyIndexError(err);
+        if (self.query_cache) |cache| cache.bumpSchemaVersion();
+    }
+
+    pub fn createNodePropertyIndex(self: *Self, label: []const u8, property: []const u8) DatabaseError!void {
+        try self.createPropertyIndex(.node, label, property);
+    }
+
+    pub fn dropNodePropertyIndex(self: *Self, label: []const u8, property: []const u8) DatabaseError!void {
+        try self.dropPropertyIndex(.node, label, property);
+    }
+
+    pub fn createEdgePropertyIndex(self: *Self, edge_type: []const u8, property: []const u8) DatabaseError!void {
+        try self.createPropertyIndex(.edge, edge_type, property);
+    }
+
+    pub fn dropEdgePropertyIndex(self: *Self, edge_type: []const u8, property: []const u8) DatabaseError!void {
+        try self.dropPropertyIndex(.edge, edge_type, property);
+    }
+
+    fn nodeStateMatchesPropertyIndex(
+        state: TxnNodeState,
+        definition: PropertyIndexDefinition,
+        value: PropertyValue,
+    ) bool {
+        if (!state.exists or !containsSymbolId(state.labels, definition.scope_id)) return false;
+        const property = findPropertyById(state.properties, definition.property_id) orelse return false;
+        return propertyValueEqual(property.value, value);
+    }
+
+    fn edgeStateMatchesPropertyIndex(
+        state: TxnEdgeState,
+        definition: PropertyIndexDefinition,
+        value: PropertyValue,
+    ) bool {
+        if (!state.exists or state.edge_type != definition.scope_id) return false;
+        const property = findPropertyById(state.properties, definition.property_id) orelse return false;
+        return propertyValueEqual(property.value, value);
+    }
+
+    pub fn findNodesByLabelProperty(
+        self: *Self,
+        txn: ?*Transaction,
+        label: []const u8,
+        property: []const u8,
+        value: PropertyValue,
+        limit: usize,
+    ) DatabaseError![]NodeId {
+        if (limit == 0) return self.allocator.alloc(NodeId, 0) catch return DatabaseError.OutOfMemory;
+        const definition = try self.propertyIndexDefinition(.node, label, property, false);
+        var index = &(self.property_index orelse return DatabaseError.MissingIndex);
+        const candidates = index.lookup(definition, value, std.math.maxInt(usize)) catch |err| return mapPropertyIndexError(err);
+        defer self.allocator.free(candidates);
+
+        var ids: std.ArrayList(NodeId) = .empty;
+        errdefer ids.deinit(self.allocator);
+        var seen: std.AutoHashMapUnmanaged(NodeId, void) = .{};
+        defer seen.deinit(self.allocator);
+
+        for (candidates) |node_id| {
+            var state = (try self.readVisibleNodeState(txn, node_id)) orelse continue;
+            defer state.deinit(self.allocator);
+            if (!nodeStateMatchesPropertyIndex(state, definition, value)) continue;
+            try seen.put(self.allocator, node_id, {});
+            ids.append(self.allocator, node_id) catch return DatabaseError.OutOfMemory;
+        }
+        if (txn) |active_txn| {
+            if (self.getTxnOverlay(active_txn)) |overlay| {
+                var iter = overlay.node_states.iterator();
+                while (iter.next()) |entry| {
+                    if (seen.contains(entry.key_ptr.*) or !nodeStateMatchesPropertyIndex(entry.value_ptr.*, definition, value)) continue;
+                    try seen.put(self.allocator, entry.key_ptr.*, {});
+                    ids.append(self.allocator, entry.key_ptr.*) catch return DatabaseError.OutOfMemory;
+                }
+            }
+        }
+        std.mem.sort(NodeId, ids.items, {}, std.sort.asc(NodeId));
+        if (ids.items.len > limit) ids.shrinkRetainingCapacity(limit);
+        return ids.toOwnedSlice(self.allocator) catch return DatabaseError.OutOfMemory;
+    }
+
+    pub fn findEdgesByTypeProperty(
+        self: *Self,
+        txn: ?*Transaction,
+        edge_type: []const u8,
+        property: []const u8,
+        value: PropertyValue,
+        limit: usize,
+    ) DatabaseError![]EdgeId {
+        if (limit == 0) return self.allocator.alloc(EdgeId, 0) catch return DatabaseError.OutOfMemory;
+        const definition = try self.propertyIndexDefinition(.edge, edge_type, property, false);
+        var index = &(self.property_index orelse return DatabaseError.MissingIndex);
+        const candidates = index.lookup(definition, value, std.math.maxInt(usize)) catch |err| return mapPropertyIndexError(err);
+        defer self.allocator.free(candidates);
+
+        var ids: std.ArrayList(EdgeId) = .empty;
+        errdefer ids.deinit(self.allocator);
+        var seen: std.AutoHashMapUnmanaged(EdgeId, void) = .{};
+        defer seen.deinit(self.allocator);
+
+        for (candidates) |edge_id| {
+            var state = (try self.readVisibleEdgeState(txn, edge_id)) orelse continue;
+            defer state.deinit(self.allocator);
+            if (!edgeStateMatchesPropertyIndex(state, definition, value)) continue;
+            try seen.put(self.allocator, edge_id, {});
+            ids.append(self.allocator, edge_id) catch return DatabaseError.OutOfMemory;
+        }
+        if (txn) |active_txn| {
+            if (self.getTxnOverlay(active_txn)) |overlay| {
+                var iter = overlay.edge_states.iterator();
+                while (iter.next()) |entry| {
+                    if (seen.contains(entry.key_ptr.*) or !edgeStateMatchesPropertyIndex(entry.value_ptr.*, definition, value)) continue;
+                    try seen.put(self.allocator, entry.key_ptr.*, {});
+                    ids.append(self.allocator, entry.key_ptr.*) catch return DatabaseError.OutOfMemory;
+                }
+            }
+        }
+        std.mem.sort(EdgeId, ids.items, {}, std.sort.asc(EdgeId));
+        if (ids.items.len > limit) ids.shrinkRetainingCapacity(limit);
+        return ids.toOwnedSlice(self.allocator) catch return DatabaseError.OutOfMemory;
     }
 
     /// Rebuild the HNSW index from persisted vectors
@@ -3725,6 +4091,9 @@ pub const Database = struct {
             }
 
             // Remove from label index
+            if (self.property_index) |*index| {
+                index.removeNode(node_id, node.labels, node.properties) catch |err| return mapPropertyIndexError(err);
+            }
             for (node.labels) |label_id| {
                 self.label_index.remove(label_id, node_id) catch |err| {
                     return switch (err) {
@@ -3881,6 +4250,13 @@ pub const Database = struct {
         self.node_store.update(node_id, existing_node.labels, new_props.items) catch |err| {
             return mapNodeStoreError(err);
         };
+        try self.replaceNodePropertyIndex(
+            node_id,
+            existing_node.labels,
+            existing_node.properties,
+            existing_node.labels,
+            new_props.items,
+        );
 
         // Log to WAL and add undo entry if transaction is provided.
         // Every buffer below is sized from `wal_payload.*Size` helpers and
@@ -4023,6 +4399,13 @@ pub const Database = struct {
         self.node_store.update(node_id, existing_node.labels, new_props.items) catch |err| {
             return mapNodeStoreError(err);
         };
+        try self.replaceNodePropertyIndex(
+            node_id,
+            existing_node.labels,
+            existing_node.properties,
+            existing_node.labels,
+            new_props.items,
+        );
 
         // Log to WAL and add undo entry if transaction is provided.
         // Buffer sizes come from `wal_payload.*Size` helpers so arbitrarily
@@ -4139,6 +4522,13 @@ pub const Database = struct {
         self.label_index.add(label_id, node_id) catch {
             return DatabaseError.IoError;
         };
+        try self.replaceNodePropertyIndex(
+            node_id,
+            existing_node.labels,
+            existing_node.properties,
+            new_labels.items,
+            existing_node.properties,
+        );
 
         // Log undo entry for transaction rollback
         if (txn) |t| {
@@ -4260,6 +4650,13 @@ pub const Database = struct {
         self.label_index.remove(label_id, node_id) catch {
             return DatabaseError.IoError;
         };
+        try self.replaceNodePropertyIndex(
+            node_id,
+            existing_node.labels,
+            existing_node.properties,
+            new_labels.items,
+            existing_node.properties,
+        );
 
         if (new_labels.items.len == 0) {
             if (self.hnsw_index) |*hnsw| {
@@ -4335,6 +4732,13 @@ pub const Database = struct {
         self.node_store.update(node_id, existing_node.labels, &[_]node_mod.Property{}) catch {
             return DatabaseError.IoError;
         };
+        try self.replaceNodePropertyIndex(
+            node_id,
+            existing_node.labels,
+            existing_node.properties,
+            existing_node.labels,
+            &.{},
+        );
     }
 
     /// Get a property from a node.
@@ -4952,6 +5356,9 @@ pub const Database = struct {
             }
         }
 
+        if (self.property_index) |*index| {
+            index.removeEdge(edge_id, edge.edge_type, edge.properties) catch |err| return mapPropertyIndexError(err);
+        }
         self.edge_store.deleteById(edge_id) catch {
             return DatabaseError.IoError;
         };
@@ -5039,6 +5446,9 @@ pub const Database = struct {
             }
         }
 
+        if (self.property_index) |*index| {
+            index.removeEdge(edge_id, edge.edge_type, edge.properties) catch |err| return mapPropertyIndexError(err);
+        }
         self.edge_store.deleteById(edge_id) catch return DatabaseError.IoError;
 
         if (self.adjacency_cache) |*cache| {
@@ -5197,6 +5607,13 @@ pub const Database = struct {
             self.edge_store.createWithId(edge_id, edge.source, edge.target, edge.edge_type, edge.properties) catch {};
             return mapEdgeStoreError(err);
         };
+        try self.replaceEdgePropertyIndex(
+            edge_id,
+            edge.edge_type,
+            edge.properties,
+            edge.edge_type,
+            new_props.items,
+        );
     }
 
     /// Remove a property from an edge by stable edge ID.
@@ -5329,6 +5746,13 @@ pub const Database = struct {
             self.edge_store.createWithId(edge_id, edge.source, edge.target, edge.edge_type, edge.properties) catch {};
             return mapEdgeStoreError(err);
         };
+        try self.replaceEdgePropertyIndex(
+            edge_id,
+            edge.edge_type,
+            edge.properties,
+            edge.edge_type,
+            new_props.items,
+        );
     }
 
     /// Check if an edge exists

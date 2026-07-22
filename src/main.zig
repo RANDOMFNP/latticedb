@@ -94,6 +94,7 @@ pub const graph = struct {
     pub const node = @import("graph/node.zig");
     pub const edge = @import("graph/edge.zig");
     pub const label_index = @import("graph/label_index.zig");
+    pub const property_index = @import("graph/property_index.zig");
     pub const adjacency_cache = @import("graph/adjacency_cache.zig");
 };
 

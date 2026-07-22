@@ -2468,3 +2468,93 @@ test "database: three labels on node pattern" {
     // Only the second node has all three labels
     try std.testing.expectEqual(@as(usize, 1), result.rowCount());
 }
+
+test "database: explicit property indexes track direct and transactional mutations" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_property_index_test.ltdb";
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(path ++ "-wal") catch {};
+    defer {
+        @import("compat").fs.cwd().deleteFile(path) catch {};
+        @import("compat").fs.cwd().deleteFile(path ++ "-wal") catch {};
+    }
+
+    var alice: u64 = undefined;
+    var bob: u64 = undefined;
+    var edge_id: u64 = undefined;
+    {
+        var db = try Database.open(allocator, path, .{ .create = true, .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+        } });
+        defer db.close();
+
+        alice = try db.createNode(null, &.{"Person"});
+        bob = try db.createNode(null, &.{"Person"});
+        try db.setNodeProperty(null, alice, "email", .{ .string_val = "alice@example.com" });
+        try db.setNodeProperty(null, bob, "email", .{ .string_val = "bob@example.com" });
+
+        try std.testing.expectError(
+            DatabaseError.MissingIndex,
+            db.findNodesByLabelProperty(null, "Person", "email", .{ .string_val = "alice@example.com" }, 10),
+        );
+        try db.createNodePropertyIndex("Person", "email");
+        try std.testing.expectError(DatabaseError.AlreadyExists, db.createNodePropertyIndex("Person", "email"));
+
+        var ids = try db.findNodesByLabelProperty(null, "Person", "email", .{ .string_val = "alice@example.com" }, 10);
+        defer allocator.free(ids);
+        try std.testing.expectEqualSlices(u64, &.{alice}, ids);
+
+        try db.setNodeProperty(null, bob, "email", .{ .string_val = "alice@example.com" });
+        allocator.free(ids);
+        ids = try db.findNodesByLabelProperty(null, "Person", "email", .{ .string_val = "alice@example.com" }, 10);
+        try std.testing.expectEqualSlices(u64, &.{ alice, bob }, ids);
+
+        var txn = try db.beginTransaction(.read_write);
+        try db.setNodeProperty(&txn, bob, "email", .{ .string_val = "bob@example.com" });
+        const txn_ids = try db.findNodesByLabelProperty(&txn, "Person", "email", .{ .string_val = "bob@example.com" }, 10);
+        defer allocator.free(txn_ids);
+        try std.testing.expectEqualSlices(u64, &.{bob}, txn_ids);
+        try db.commitTransaction(&txn);
+
+        allocator.free(ids);
+        ids = try db.findNodesByLabelProperty(null, "Person", "email", .{ .string_val = "alice@example.com" }, 10);
+        try std.testing.expectEqualSlices(u64, &.{alice}, ids);
+
+        edge_id = try db.createEdgeAndGetId(null, alice, bob, "KNOWS");
+        try db.setEdgePropertyById(null, edge_id, "since", .{ .int_val = 2024 });
+        try db.createEdgePropertyIndex("KNOWS", "since");
+        const edge_ids = try db.findEdgesByTypeProperty(null, "KNOWS", "since", .{ .int_val = 2024 }, 10);
+        defer allocator.free(edge_ids);
+        try std.testing.expectEqualSlices(u64, &.{edge_id}, edge_ids);
+
+        try db.sync();
+    }
+
+    {
+        var db = try Database.open(allocator, path, .{ .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+        } });
+        defer db.close();
+
+        const node_ids = try db.findNodesByLabelProperty(null, "Person", "email", .{ .string_val = "alice@example.com" }, 10);
+        defer allocator.free(node_ids);
+        try std.testing.expectEqualSlices(u64, &.{alice}, node_ids);
+
+        const edge_ids = try db.findEdgesByTypeProperty(null, "KNOWS", "since", .{ .int_val = 2024 }, 10);
+        defer allocator.free(edge_ids);
+        try std.testing.expectEqualSlices(u64, &.{edge_id}, edge_ids);
+
+        try db.removeEdgePropertyById(null, edge_id, "since");
+        const removed = try db.findEdgesByTypeProperty(null, "KNOWS", "since", .{ .int_val = 2024 }, 10);
+        defer allocator.free(removed);
+        try std.testing.expectEqual(@as(usize, 0), removed.len);
+
+        try db.dropNodePropertyIndex("Person", "email");
+        try std.testing.expectError(
+            DatabaseError.MissingIndex,
+            db.findNodesByLabelProperty(null, "Person", "email", .{ .string_val = "alice@example.com" }, 10),
+        );
+    }
+}

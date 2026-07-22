@@ -57,7 +57,9 @@ pub const TreeIndex = enum(u8) {
     stream_meta = 10,
     stream_events = 11,
     stream_offsets = 12,
-    // Reserved for future use: 13-15
+    property_index_catalog = 13,
+    node_property_index = 14,
+    edge_property_index = 15,
 };
 
 /// Maximum number of B+Tree root pages stored in header

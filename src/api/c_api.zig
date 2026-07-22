@@ -350,6 +350,7 @@ fn mapDatabaseError(err: DatabaseError) lattice_error {
         DatabaseError.TransactionConflict => .err_lock_timeout,
         DatabaseError.TransactionsNotEnabled => .err_invalid_arg,
         DatabaseError.ValueTooLarge => .err_value_too_large,
+        DatabaseError.MissingIndex => .err_unsupported,
     };
 }
 
