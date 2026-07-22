@@ -39,6 +39,12 @@ jobs:
       - name: Run integration tests
         run: zig build integration-test
 
+      - name: Run crash-recovery tests
+        run: zig build crash-test
+
+      - name: Run deterministic fuzz corpus
+        run: zig build fuzz
+
       - name: Build shared library
         run: |
           case "${{ matrix.os }}-$(uname -m)" in
@@ -259,12 +265,16 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python linters
-        run: pip install ruff mypy
+        working-directory: bindings/python
+        run: pip install -e ".[dev]"
 
       - name: Run ruff
-        run: |
-          cd bindings/python
-          ruff check src/
+        working-directory: bindings/python
+        run: ruff check src/
+
+      - name: Run mypy
+        working-directory: bindings/python
+        run: mypy src/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

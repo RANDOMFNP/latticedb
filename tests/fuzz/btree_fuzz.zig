@@ -237,16 +237,22 @@ pub fn fuzzBTreeIteration(allocator: Allocator, input: []const u8) !void {
 // Fuzz Runners
 // ============================================================================
 
-fn btreeOpsRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzBTreeOperations(allocator, input);
+fn btreeOpsRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzBTreeOperations(allocator, input[0..len]);
 }
 
-fn btreeKeysRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzBTreeKeys(allocator, input);
+fn btreeKeysRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzBTreeKeys(allocator, input[0..len]);
 }
 
-fn btreeIterRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzBTreeIteration(allocator, input);
+fn btreeIterRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzBTreeIteration(allocator, input[0..len]);
 }
 
 // ============================================================================

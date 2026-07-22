@@ -8,6 +8,9 @@ Combines property graph storage, HNSW vector search, and BM25 full-text search.
 from __future__ import annotations
 
 import warnings
+from typing import Any, cast
+
+import numpy as np
 
 from latticedb.database import Database
 from latticedb.transaction import Transaction
@@ -56,7 +59,7 @@ def version() -> str:
     lib = get_lib()
     result = lib._lib.lattice_version()
     if result:
-        return result.decode("utf-8")
+        return cast(str, result.decode("utf-8"))
     return __version__
 
 __version__ = "0.9.6"
@@ -65,7 +68,7 @@ __version__ = "0.9.6"
 EmbeddingApiFormat = _EmbeddingApiFormat
 
 
-def hash_embed(text: str, dimensions: int = 128):
+def hash_embed(text: str, dimensions: int = 128) -> np.ndarray:
     """Deprecated compatibility wrapper for :func:`latticedb.embedding.hash_embed`."""
     warnings.warn(
         "latticedb.hash_embed is deprecated; use latticedb.embedding.hash_embed. Earliest removal is v0.6.0.",
@@ -78,7 +81,7 @@ def hash_embed(text: str, dimensions: int = 128):
 class EmbeddingClient(_EmbeddingClient):
     """Deprecated compatibility wrapper for :class:`latticedb.embedding.EmbeddingClient`."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         warnings.warn(
             "latticedb.EmbeddingClient is deprecated; use latticedb.embedding.EmbeddingClient. Earliest removal is v0.6.0.",
             DeprecationWarning,

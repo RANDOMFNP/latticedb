@@ -1173,7 +1173,7 @@ def check_query_error(code: int, query_ptr: Any) -> None:
     check_error(code)
 
 
-def value_to_python(c_value: LatticeValue):
+def value_to_python(c_value: LatticeValue) -> Any:
     """Convert a LatticeValue to a Python value.
 
     Args:
@@ -1233,12 +1233,12 @@ def value_to_python(c_value: LatticeValue):
         )
 
 
-def _is_numpy_array(value) -> bool:
+def _is_numpy_array(value: Any) -> bool:
     """Check if a value is a numpy array without importing numpy."""
     return type(value).__module__ == "numpy" and type(value).__name__ == "ndarray"
 
 
-def python_to_value(py_val, c_value: LatticeValue):
+def python_to_value(py_val: Any, c_value: LatticeValue) -> list[Any]:
     """Fill a LatticeValue from a Python value.
 
     Args:
@@ -1269,9 +1269,9 @@ def _python_to_value(py_val: Any, c_value: LatticeValue, refs: list[Any]) -> Non
         c_value.type = LATTICE_VALUE_STRING
         encoded = py_val.encode("utf-8")
         if encoded:
-            buf = (c_char * len(encoded)).from_buffer_copy(encoded)
-            refs.append(buf)
-            c_value.data.string_val.ptr = ctypes.cast(buf, POINTER(c_char))
+            string_buf = (c_char * len(encoded)).from_buffer_copy(encoded)
+            refs.append(string_buf)
+            c_value.data.string_val.ptr = ctypes.cast(string_buf, POINTER(c_char))
             c_value.data.string_val.len = len(encoded)
         else:
             c_value.data.string_val.ptr = POINTER(c_char)()
@@ -1279,9 +1279,9 @@ def _python_to_value(py_val: Any, c_value: LatticeValue, refs: list[Any]) -> Non
     elif isinstance(py_val, bytes):
         c_value.type = LATTICE_VALUE_BYTES
         if py_val:
-            buf = (ctypes.c_uint8 * len(py_val)).from_buffer_copy(py_val)
-            refs.append(buf)
-            c_value.data.bytes_val.ptr = ctypes.cast(buf, POINTER(ctypes.c_uint8))
+            bytes_buf = (ctypes.c_uint8 * len(py_val)).from_buffer_copy(py_val)
+            refs.append(bytes_buf)
+            c_value.data.bytes_val.ptr = ctypes.cast(bytes_buf, POINTER(ctypes.c_uint8))
             c_value.data.bytes_val.len = len(py_val)
         else:
             c_value.data.bytes_val.ptr = POINTER(ctypes.c_uint8)()

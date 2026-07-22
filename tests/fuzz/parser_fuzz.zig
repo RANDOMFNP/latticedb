@@ -55,6 +55,9 @@ fn validateClause(clause: lattice.query.ast.Clause) bool {
         .order_by => true,
         .skip => true,
         .limit => true,
+        .with => true,
+        .merge => true,
+        .unwind => true,
     };
 }
 
@@ -77,12 +80,16 @@ pub fn fuzzLexer(input: []const u8) !void {
 // Fuzz Tests using std.testing.fuzz
 // ============================================================================
 
-fn parserFuzzRunner(allocator: std.mem.Allocator, input: []const u8) !void {
-    try fuzzParser(allocator, input);
+fn parserFuzzRunner(allocator: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzParser(allocator, input[0..len]);
 }
 
-fn lexerFuzzRunner(_: std.mem.Allocator, input: []const u8) !void {
-    try fuzzLexer(input);
+fn lexerFuzzRunner(_: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzLexer(input[0..len]);
 }
 
 test "fuzz: parser handles arbitrary input" {

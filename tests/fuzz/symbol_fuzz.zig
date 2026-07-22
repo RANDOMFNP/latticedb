@@ -238,16 +238,22 @@ pub fn fuzzSymbolMany(allocator: Allocator, input: []const u8) !void {
 // Fuzz Runners
 // ============================================================================
 
-fn symbolOpsRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzSymbolOperations(allocator, input);
+fn symbolOpsRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzSymbolOperations(allocator, input[0..len]);
 }
 
-fn symbolConsistRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzSymbolConsistency(allocator, input);
+fn symbolConsistRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzSymbolConsistency(allocator, input[0..len]);
 }
 
-fn symbolManyRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzSymbolMany(allocator, input);
+fn symbolManyRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzSymbolMany(allocator, input[0..len]);
 }
 
 // ============================================================================

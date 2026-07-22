@@ -111,7 +111,7 @@ class Database:
         lib = get_lib()
         db_ptr = c_void_p()
         if getattr(lib, "_has_lattice_open_v3", False):
-            opts = OpenOptionsV3(
+            opts_v3 = OpenOptionsV3(
                 struct_size=ctypes.sizeof(OpenOptionsV3),
                 create=self._create,
                 read_only=self._read_only,
@@ -124,7 +124,7 @@ class Database:
             )
             code = lib._lib.lattice_open_v3(
                 str(self._path).encode("utf-8"),
-                byref(opts),
+                byref(opts_v3),
                 byref(db_ptr),
             )
         elif getattr(lib, "_has_lattice_open_v2", False):
@@ -133,7 +133,7 @@ class Database:
                     "lattice_open_v3 is required to enable the adjacency cache",
                     LATTICE_ERROR_UNSUPPORTED,
                 )
-            opts = OpenOptionsV2(
+            opts_v2 = OpenOptionsV2(
                 struct_size=ctypes.sizeof(OpenOptionsV2),
                 create=self._create,
                 read_only=self._read_only,
@@ -145,7 +145,7 @@ class Database:
             )
             code = lib._lib.lattice_open_v2(
                 str(self._path).encode("utf-8"),
-                byref(opts),
+                byref(opts_v2),
                 byref(db_ptr),
             )
         else:
@@ -159,7 +159,7 @@ class Database:
                     "lattice_open_v2 is required to disable WAL",
                     LATTICE_ERROR_UNSUPPORTED,
                 )
-            opts = OpenOptions(
+            opts_v1 = OpenOptions(
                 create=self._create,
                 read_only=self._read_only,
                 cache_size_mb=self._cache_size_mb,
@@ -169,7 +169,7 @@ class Database:
             )
             code = lib._lib.lattice_open(
                 str(self._path).encode("utf-8"),
-                byref(opts),
+                byref(opts_v1),
                 byref(db_ptr),
             )
         check_error(code)

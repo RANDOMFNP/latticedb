@@ -258,16 +258,22 @@ pub fn fuzzVectorNormalization(allocator: Allocator, input: []const u8) !void {
 // Fuzz Runners
 // ============================================================================
 
-fn hnswOpsRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzHnswOperations(allocator, input);
+fn hnswOpsRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzHnswOperations(allocator, input[0..len]);
 }
 
-fn hnswDistRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzHnswDistances(allocator, input);
+fn hnswDistRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzHnswDistances(allocator, input[0..len]);
 }
 
-fn vectorNormRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzVectorNormalization(allocator, input);
+fn vectorNormRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzVectorNormalization(allocator, input[0..len]);
 }
 
 // ============================================================================

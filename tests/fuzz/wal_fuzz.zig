@@ -165,32 +165,46 @@ pub fn fuzzPropertyRoundtrip(allocator: std.mem.Allocator, input: []const u8) !v
 // Fuzz Runners
 // ============================================================================
 
-fn nodeInsertRunner(_: std.mem.Allocator, input: []const u8) !void {
-    try fuzzNodeInsert(input);
+fn nodeInsertRunner(_: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzNodeInsert(input[0..len]);
 }
 
-fn nodeDeleteRunner(_: std.mem.Allocator, input: []const u8) !void {
-    try fuzzNodeDelete(input);
+fn nodeDeleteRunner(_: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzNodeDelete(input[0..len]);
 }
 
-fn edgeInsertRunner(_: std.mem.Allocator, input: []const u8) !void {
-    try fuzzEdgeInsert(input);
+fn edgeInsertRunner(_: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzEdgeInsert(input[0..len]);
 }
 
-fn edgeDeleteRunner(_: std.mem.Allocator, input: []const u8) !void {
-    try fuzzEdgeDelete(input);
+fn edgeDeleteRunner(_: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzEdgeDelete(input[0..len]);
 }
 
-fn propertyUpdateRunner(_: std.mem.Allocator, input: []const u8) !void {
-    try fuzzPropertyUpdate(input);
+fn propertyUpdateRunner(_: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzPropertyUpdate(input[0..len]);
 }
 
-fn propertiesRunner(allocator: std.mem.Allocator, input: []const u8) !void {
-    try fuzzProperties(allocator, input);
+fn propertiesRunner(allocator: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzProperties(allocator, input[0..len]);
 }
 
-fn propertyValueRunner(allocator: std.mem.Allocator, input: []const u8) !void {
-    try fuzzPropertyValue(allocator, input);
+fn propertyValueRunner(allocator: std.mem.Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzPropertyValue(allocator, input[0..len]);
 }
 
 // ============================================================================

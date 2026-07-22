@@ -8,7 +8,7 @@ an HTTP embedding client for services like Ollama and OpenAI.
 import ctypes
 from ctypes import POINTER, byref, c_size_t, c_uint16, c_uint32, c_void_p
 from enum import IntEnum
-from typing import Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 
@@ -56,7 +56,7 @@ def hash_embed(text: str, dimensions: int = 128) -> np.ndarray:
     finally:
         lib._lib.lattice_hash_embed_free(vector_out, dims_out)
 
-    return result
+    return cast(np.ndarray, result)
 
 
 class EmbeddingClient:
@@ -125,7 +125,7 @@ class EmbeddingClient:
         finally:
             self._lib._lib.lattice_hash_embed_free(vector_out, dims_out)
 
-        return result
+        return cast(np.ndarray, result)
 
     def close(self) -> None:
         """Free the underlying C client."""
@@ -136,7 +136,7 @@ class EmbeddingClient:
     def __enter__(self) -> "EmbeddingClient":
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *args: Any) -> None:
         self.close()
 
     def __del__(self) -> None:

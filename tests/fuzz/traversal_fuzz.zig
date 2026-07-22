@@ -54,7 +54,8 @@ const FuzzDb = struct {
         }
 
         // Create edges to form a connected graph
-        const rng = std.crypto.random;
+        var prng = std.Random.DefaultPrng.init(0x6c617474696365);
+        const rng = prng.random();
         for (node_ids) |source| {
             for (0..edges_per_node) |_| {
                 const target_idx = rng.intRangeAtMost(usize, 0, node_count - 1);
@@ -212,16 +213,22 @@ pub fn fuzzTraversalConsistency(allocator: Allocator, input: []const u8) !void {
 // Fuzz Runners
 // ============================================================================
 
-fn multiHopRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzMultiHopTraversal(allocator, input);
+fn multiHopRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzMultiHopTraversal(allocator, input[0..len]);
 }
 
-fn varLengthRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzVarLengthPath(allocator, input);
+fn varLengthRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzVarLengthPath(allocator, input[0..len]);
 }
 
-fn consistencyRunner(allocator: Allocator, input: []const u8) !void {
-    try fuzzTraversalConsistency(allocator, input);
+fn consistencyRunner(allocator: Allocator, smith: *std.testing.Smith) !void {
+    var input: [4096]u8 = undefined;
+    const len = smith.slice(&input);
+    try fuzzTraversalConsistency(allocator, input[0..len]);
 }
 
 // ============================================================================
