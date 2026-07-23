@@ -5,7 +5,7 @@ Transaction class for Lattice Python bindings.
 import ctypes
 import warnings
 from ctypes import byref, c_uint64, c_void_p
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 from latticedb._bindings import (
     LATTICE_ERROR_NOT_FOUND,
@@ -394,7 +394,7 @@ class Transaction:
             return None
         check_error(code)
         try:
-            return value_to_python(c_value)
+            return cast(PropertyValue, value_to_python(c_value))
         finally:
             lib._lib.lattice_value_free(byref(c_value))
 
@@ -996,7 +996,7 @@ class Transaction:
             return None
         check_error(code)
         try:
-            return value_to_python(c_value)
+            return cast(PropertyValue, value_to_python(c_value))
         finally:
             lib._lib.lattice_value_free(byref(c_value))
 
