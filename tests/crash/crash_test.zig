@@ -34,8 +34,10 @@ fn simulateCrash(path: []const u8) !void {
     const n = try file.preadAll(&header_buf, 0);
     if (n < @sizeOf(FileHeader)) return error.HeaderTooSmall;
 
-    // Get a mutable pointer to the header within the buffer
-    const header: *FileHeader = @ptrCast(@alignCast(&header_buf));
+    // Stack byte arrays only have byte alignment on some targets. Copy into a
+    // naturally aligned value instead of casting the file buffer directly.
+    var header: FileHeader = undefined;
+    @memcpy(std.mem.asBytes(&header), header_buf[0..@sizeOf(FileHeader)]);
 
     // Zero tree_roots so hasInitializedTrees() returns false on reopen
     header.tree_roots = [_]u32{NULL_PAGE} ** 16;
@@ -52,6 +54,7 @@ fn simulateCrash(path: []const u8) !void {
     header.vector_segment_page = NULL_PAGE;
 
     // Write modified header back
+    @memcpy(header_buf[0..@sizeOf(FileHeader)], std.mem.asBytes(&header));
     try file.pwriteAll(&header_buf, 0);
 
     // Truncate file to just the header page (4096 bytes)
