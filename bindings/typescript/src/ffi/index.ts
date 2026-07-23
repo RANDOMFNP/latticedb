@@ -423,6 +423,71 @@ export class LatticeFFI {
     }
   }
 
+  createNodePropertyIndex(db: DatabaseHandle, label: string, property: string): void {
+    this.checkError(this.bindings.lattice_node_property_index_create(db, label, property));
+  }
+
+  dropNodePropertyIndex(db: DatabaseHandle, label: string, property: string): void {
+    this.checkError(this.bindings.lattice_node_property_index_drop(db, label, property));
+  }
+
+  createEdgePropertyIndex(db: DatabaseHandle, edgeType: string, property: string): void {
+    this.checkError(this.bindings.lattice_edge_property_index_create(db, edgeType, property));
+  }
+
+  dropEdgePropertyIndex(db: DatabaseHandle, edgeType: string, property: string): void {
+    this.checkError(this.bindings.lattice_edge_property_index_drop(db, edgeType, property));
+  }
+
+  findNodesByLabelProperty(
+    txn: TransactionHandle,
+    label: string,
+    property: string,
+    value: PropertyValue,
+    limit: number
+  ): bigint[] {
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new RangeError('limit must be a positive integer');
+    }
+    const idsOut: unknown[] = [null];
+    const countOut = [0];
+    const latticeValue = this.jsToLatticeValue(value);
+    this.checkError(this.bindings.lattice_nodes_find_by_label_property(
+      txn, label, property, latticeValue, limit, idsOut, countOut
+    ));
+    return this.decodeOwnedIds(idsOut[0], countOut[0] ?? 0, false);
+  }
+
+  findEdgesByTypeProperty(
+    txn: TransactionHandle,
+    edgeType: string,
+    property: string,
+    value: PropertyValue,
+    limit: number
+  ): bigint[] {
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new RangeError('limit must be a positive integer');
+    }
+    const idsOut: unknown[] = [null];
+    const countOut = [0];
+    const latticeValue = this.jsToLatticeValue(value);
+    this.checkError(this.bindings.lattice_edges_find_by_type_property(
+      txn, edgeType, property, latticeValue, limit, idsOut, countOut
+    ));
+    return this.decodeOwnedIds(idsOut[0], countOut[0] ?? 0, true);
+  }
+
+  private decodeOwnedIds(ptr: unknown, count: number, edges: boolean): bigint[] {
+    if (!ptr || count === 0) return [];
+    try {
+      const decoded = koffi.decode(ptr, 'uint64', count) as Array<number | bigint>;
+      return decoded.map((id) => typeof id === 'bigint' ? id : BigInt(id));
+    } finally {
+      if (edges) this.bindings.lattice_free_edge_ids(ptr, count);
+      else this.bindings.lattice_free_node_ids(ptr, count);
+    }
+  }
+
   /**
    * Set a vector on a node.
    */

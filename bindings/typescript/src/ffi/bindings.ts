@@ -229,7 +229,46 @@ export interface LatticeBindings {
     node_ids_out: unknown[],
     count_out: number[]
   ) => number;
+  lattice_node_property_index_create: (
+    db: unknown,
+    label: string,
+    property: string
+  ) => number;
+  lattice_node_property_index_drop: (
+    db: unknown,
+    label: string,
+    property: string
+  ) => number;
+  lattice_nodes_find_by_label_property: (
+    txn: unknown,
+    label: string,
+    property: string,
+    value: unknown,
+    limit: number,
+    node_ids_out: unknown[],
+    count_out: number[]
+  ) => number;
+  lattice_edge_property_index_create: (
+    db: unknown,
+    edge_type: string,
+    property: string
+  ) => number;
+  lattice_edge_property_index_drop: (
+    db: unknown,
+    edge_type: string,
+    property: string
+  ) => number;
+  lattice_edges_find_by_type_property: (
+    txn: unknown,
+    edge_type: string,
+    property: string,
+    value: unknown,
+    limit: number,
+    edge_ids_out: unknown[],
+    count_out: number[]
+  ) => number;
   lattice_free_node_ids: (node_ids: unknown, count: number) => void;
+  lattice_free_edge_ids: (edge_ids: unknown, count: number) => void;
   lattice_free_string: (str: unknown) => void;
   lattice_value_free: (value: unknown) => void;
   lattice_node_set_property: (
@@ -669,7 +708,49 @@ function createBindings(): LatticeBindings {
       koffi.out(koffi.pointer('void*')), // node_ids_out - raw pointer for manual free
       koffi.out(koffi.pointer('size_t')), // count_out
     ]),
+    lattice_node_property_index_create: lib.func('lattice_node_property_index_create', 'int', [
+      DatabasePtr,
+      'str',
+      'str',
+    ]),
+    lattice_node_property_index_drop: lib.func('lattice_node_property_index_drop', 'int', [
+      DatabasePtr,
+      'str',
+      'str',
+    ]),
+    lattice_nodes_find_by_label_property: lib.func('lattice_nodes_find_by_label_property', 'int', [
+      TxnPtr,
+      'str',
+      'str',
+      ValuePtr,
+      'size_t',
+      koffi.out(koffi.pointer('void*')),
+      koffi.out(koffi.pointer('size_t')),
+    ]),
+    lattice_edge_property_index_create: lib.func('lattice_edge_property_index_create', 'int', [
+      DatabasePtr,
+      'str',
+      'str',
+    ]),
+    lattice_edge_property_index_drop: lib.func('lattice_edge_property_index_drop', 'int', [
+      DatabasePtr,
+      'str',
+      'str',
+    ]),
+    lattice_edges_find_by_type_property: lib.func('lattice_edges_find_by_type_property', 'int', [
+      TxnPtr,
+      'str',
+      'str',
+      ValuePtr,
+      'size_t',
+      koffi.out(koffi.pointer('void*')),
+      koffi.out(koffi.pointer('size_t')),
+    ]),
     lattice_free_node_ids: lib.func('lattice_free_node_ids', 'void', [
+      'void*',
+      'size_t',
+    ]),
+    lattice_free_edge_ids: lib.func('lattice_free_edge_ids', 'void', [
       'void*',
       'size_t',
     ]),

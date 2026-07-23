@@ -588,6 +588,62 @@ class LatticeLib:
         ]
         self._lib.lattice_get_nodes_by_label_txn.restype = c_int
 
+        self._lib.lattice_node_property_index_create.argtypes = [
+            LatticeDatabase,
+            c_char_p,
+            c_char_p,
+        ]
+        self._lib.lattice_node_property_index_create.restype = c_int
+
+        self._lib.lattice_node_property_index_drop.argtypes = [
+            LatticeDatabase,
+            c_char_p,
+            c_char_p,
+        ]
+        self._lib.lattice_node_property_index_drop.restype = c_int
+
+        self._lib.lattice_nodes_find_by_label_property.argtypes = [
+            LatticeTxn,
+            c_char_p,
+            c_char_p,
+            POINTER(LatticeValue),
+            c_size_t,
+            POINTER(POINTER(LatticeNodeId)),
+            POINTER(c_size_t),
+        ]
+        self._lib.lattice_nodes_find_by_label_property.restype = c_int
+
+        self._lib.lattice_edge_property_index_create.argtypes = [
+            LatticeDatabase,
+            c_char_p,
+            c_char_p,
+        ]
+        self._lib.lattice_edge_property_index_create.restype = c_int
+
+        self._lib.lattice_edge_property_index_drop.argtypes = [
+            LatticeDatabase,
+            c_char_p,
+            c_char_p,
+        ]
+        self._lib.lattice_edge_property_index_drop.restype = c_int
+
+        self._lib.lattice_edges_find_by_type_property.argtypes = [
+            LatticeTxn,
+            c_char_p,
+            c_char_p,
+            POINTER(LatticeValue),
+            c_size_t,
+            POINTER(POINTER(LatticeEdgeId)),
+            POINTER(c_size_t),
+        ]
+        self._lib.lattice_edges_find_by_type_property.restype = c_int
+
+        self._lib.lattice_free_edge_ids.argtypes = [
+            POINTER(LatticeEdgeId),
+            c_size_t,
+        ]
+        self._lib.lattice_free_edge_ids.restype = None
+
         # lattice_free_node_ids
         self._lib.lattice_free_node_ids.argtypes = [
             POINTER(LatticeNodeId),

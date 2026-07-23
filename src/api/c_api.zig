@@ -1652,6 +1652,80 @@ pub export fn lattice_get_all_nodes_txn(
     return .ok;
 }
 
+pub export fn lattice_node_property_index_create(
+    db: ?*lattice_database,
+    label: [*c]const u8,
+    property: [*c]const u8,
+) lattice_error {
+    const db_handle = toHandle(DatabaseHandle, db) orelse return .err_invalid_arg;
+    const label_slice = cStrToSlice(label) orelse return .err_invalid_arg;
+    const property_slice = cStrToSlice(property) orelse return .err_invalid_arg;
+
+    db_handle.mutex.lock();
+    defer db_handle.mutex.unlock();
+    const active = ensureActiveDbLocked(db_handle);
+    if (active != .ok) return active;
+    db_handle.db.createNodePropertyIndex(label_slice, property_slice) catch |err| return mapDatabaseError(err);
+    return .ok;
+}
+
+pub export fn lattice_node_property_index_drop(
+    db: ?*lattice_database,
+    label: [*c]const u8,
+    property: [*c]const u8,
+) lattice_error {
+    const db_handle = toHandle(DatabaseHandle, db) orelse return .err_invalid_arg;
+    const label_slice = cStrToSlice(label) orelse return .err_invalid_arg;
+    const property_slice = cStrToSlice(property) orelse return .err_invalid_arg;
+
+    db_handle.mutex.lock();
+    defer db_handle.mutex.unlock();
+    const active = ensureActiveDbLocked(db_handle);
+    if (active != .ok) return active;
+    db_handle.db.dropNodePropertyIndex(label_slice, property_slice) catch |err| return mapDatabaseError(err);
+    return .ok;
+}
+
+pub export fn lattice_nodes_find_by_label_property(
+    txn: ?*lattice_txn,
+    label: [*c]const u8,
+    property: [*c]const u8,
+    value: ?*const lattice_value,
+    limit: usize,
+    node_ids_out: *?[*]lattice_node_id,
+    count_out: *usize,
+) lattice_error {
+    const txn_handle = toHandle(TxnHandle, txn) orelse return .err_invalid_arg;
+    const label_slice = cStrToSlice(label) orelse return .err_invalid_arg;
+    const property_slice = cStrToSlice(property) orelse return .err_invalid_arg;
+    const c_value = value orelse return .err_invalid_arg;
+    if (limit == 0) return .err_invalid_arg;
+    node_ids_out.* = null;
+    count_out.* = 0;
+
+    var zig_value = cValueToOwnedZigValue(c_value, global_allocator) catch |err| return mapValueConversionError(err);
+    defer zig_value.deinit(global_allocator);
+    const active = lockActiveTxnDb(txn_handle);
+    if (active != .ok) return active;
+    defer unlockTxnDb(txn_handle);
+
+    const txn_ptr: ?*Transaction = if (txn_handle.txn.id != 0) &txn_handle.txn else null;
+    const owned = txn_handle.db_handle.db.findNodesByLabelProperty(
+        txn_ptr,
+        label_slice,
+        property_slice,
+        zig_value,
+        limit,
+    ) catch |err| return mapDatabaseError(err);
+    defer txn_handle.db_handle.db.allocator.free(owned);
+    if (owned.len == 0) return .ok;
+
+    const output = global_allocator.dupe(lattice_node_id, owned) catch return .err_out_of_memory;
+    node_ids_out.* = output.ptr;
+    count_out.* = output.len;
+    return .ok;
+}
+
 /// Free an array returned by `lattice_get_nodes_by_label`.
 pub export fn lattice_free_node_ids(node_ids: ?[*]lattice_node_id, count: usize) void {
     const ptr = node_ids orelse return;
@@ -2622,6 +2696,86 @@ pub export fn lattice_edge_remove_property(
     };
 
     return .ok;
+}
+
+pub export fn lattice_edge_property_index_create(
+    db: ?*lattice_database,
+    edge_type: [*c]const u8,
+    property: [*c]const u8,
+) lattice_error {
+    const db_handle = toHandle(DatabaseHandle, db) orelse return .err_invalid_arg;
+    const type_slice = cStrToSlice(edge_type) orelse return .err_invalid_arg;
+    const property_slice = cStrToSlice(property) orelse return .err_invalid_arg;
+
+    db_handle.mutex.lock();
+    defer db_handle.mutex.unlock();
+    const active = ensureActiveDbLocked(db_handle);
+    if (active != .ok) return active;
+    db_handle.db.createEdgePropertyIndex(type_slice, property_slice) catch |err| return mapDatabaseError(err);
+    return .ok;
+}
+
+pub export fn lattice_edge_property_index_drop(
+    db: ?*lattice_database,
+    edge_type: [*c]const u8,
+    property: [*c]const u8,
+) lattice_error {
+    const db_handle = toHandle(DatabaseHandle, db) orelse return .err_invalid_arg;
+    const type_slice = cStrToSlice(edge_type) orelse return .err_invalid_arg;
+    const property_slice = cStrToSlice(property) orelse return .err_invalid_arg;
+
+    db_handle.mutex.lock();
+    defer db_handle.mutex.unlock();
+    const active = ensureActiveDbLocked(db_handle);
+    if (active != .ok) return active;
+    db_handle.db.dropEdgePropertyIndex(type_slice, property_slice) catch |err| return mapDatabaseError(err);
+    return .ok;
+}
+
+pub export fn lattice_edges_find_by_type_property(
+    txn: ?*lattice_txn,
+    edge_type: [*c]const u8,
+    property: [*c]const u8,
+    value: ?*const lattice_value,
+    limit: usize,
+    edge_ids_out: *?[*]lattice_edge_id,
+    count_out: *usize,
+) lattice_error {
+    const txn_handle = toHandle(TxnHandle, txn) orelse return .err_invalid_arg;
+    const type_slice = cStrToSlice(edge_type) orelse return .err_invalid_arg;
+    const property_slice = cStrToSlice(property) orelse return .err_invalid_arg;
+    const c_value = value orelse return .err_invalid_arg;
+    if (limit == 0) return .err_invalid_arg;
+    edge_ids_out.* = null;
+    count_out.* = 0;
+
+    var zig_value = cValueToOwnedZigValue(c_value, global_allocator) catch |err| return mapValueConversionError(err);
+    defer zig_value.deinit(global_allocator);
+    const active = lockActiveTxnDb(txn_handle);
+    if (active != .ok) return active;
+    defer unlockTxnDb(txn_handle);
+
+    const txn_ptr: ?*Transaction = if (txn_handle.txn.id != 0) &txn_handle.txn else null;
+    const owned = txn_handle.db_handle.db.findEdgesByTypeProperty(
+        txn_ptr,
+        type_slice,
+        property_slice,
+        zig_value,
+        limit,
+    ) catch |err| return mapDatabaseError(err);
+    defer txn_handle.db_handle.db.allocator.free(owned);
+    if (owned.len == 0) return .ok;
+
+    const output = global_allocator.dupe(lattice_edge_id, owned) catch return .err_out_of_memory;
+    edge_ids_out.* = output.ptr;
+    count_out.* = output.len;
+    return .ok;
+}
+
+pub export fn lattice_free_edge_ids(edge_ids: ?[*]lattice_edge_id, count: usize) void {
+    const ptr = edge_ids orelse return;
+    if (count == 0) return;
+    global_allocator.free(ptr[0..count]);
 }
 
 fn finishEdgeResultHandleLocked(

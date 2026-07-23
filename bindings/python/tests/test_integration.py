@@ -1355,3 +1355,49 @@ class TestStreams:
             with pytest.raises(LatticeUnsupportedError):
                 with db.write() as txn:
                     txn.publish_stream("events", "hidden")
+
+
+class TestPropertyIndexes:
+    def test_explicit_node_and_edge_property_indexes(self, tmp_path):
+        db_path = tmp_path / "property-indexes.db"
+        with Database(db_path, create=True) as db:
+            with db.write() as txn:
+                alice = txn.create_node(
+                    labels=["Person"], properties={"email": "alice@example.com"}
+                )
+                bob = txn.create_node(
+                    labels=["Person"], properties={"email": "bob@example.com"}
+                )
+                edge = txn.create_edge(
+                    alice.id, bob.id, "KNOWS", properties={"since": 2024}
+                )
+                txn.commit()
+
+            with db.read() as txn:
+                with pytest.raises(LatticeUnsupportedError):
+                    txn.find_nodes_by_label_property(
+                        "Person", "email", "alice@example.com"
+                    )
+
+            db.create_node_property_index("Person", "email")
+            db.create_edge_property_index("KNOWS", "since")
+
+            with db.read() as txn:
+                assert txn.find_nodes_by_label_property(
+                    "Person", "email", "alice@example.com"
+                ) == [alice.id]
+                assert txn.find_edges_by_type_property("KNOWS", "since", 2024) == [edge.id]
+
+            with db.write() as txn:
+                txn.set_property(bob.id, "email", "alice@example.com")
+                assert txn.find_nodes_by_label_property(
+                    "Person", "email", "alice@example.com"
+                ) == [alice.id, bob.id]
+                txn.commit()
+
+            db.drop_node_property_index("Person", "email")
+            with db.read() as txn:
+                with pytest.raises(LatticeUnsupportedError):
+                    txn.find_nodes_by_label_property(
+                        "Person", "email", "alice@example.com"
+                    )

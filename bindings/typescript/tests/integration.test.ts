@@ -1188,6 +1188,59 @@ describeIfNative('Database Integration', () => {
     });
   });
 
+  describe('Property indexes', () => {
+    test('creates and uses explicit node and edge equality indexes', async () => {
+      db = new Database(dbPath, { create: true });
+      await db.open();
+
+      let aliceId = BigInt(0);
+      let bobId = BigInt(0);
+      let edgeId = BigInt(0);
+      await db.write(async (txn) => {
+        const alice = await txn.createNode({
+          labels: ['Person'],
+          properties: { email: 'alice@example.com' },
+        });
+        const bob = await txn.createNode({
+          labels: ['Person'],
+          properties: { email: 'bob@example.com' },
+        });
+        const edge = await txn.createEdge(alice.id, bob.id, 'KNOWS', {
+          properties: { since: BigInt(2024) },
+        });
+        aliceId = alice.id;
+        bobId = bob.id;
+        edgeId = edge.id;
+      });
+
+      await expect(db.read(async (txn) =>
+        txn.findNodesByLabelProperty('Person', 'email', 'alice@example.com')
+      )).rejects.toMatchObject({ code: LatticeErrorCode.Unsupported });
+
+      await db.createNodePropertyIndex('Person', 'email');
+      await db.createEdgePropertyIndex('KNOWS', 'since');
+
+      await expect(db.read(async (txn) =>
+        txn.findNodesByLabelProperty('Person', 'email', 'alice@example.com')
+      )).resolves.toEqual([aliceId]);
+      await expect(db.read(async (txn) =>
+        txn.findEdgesByTypeProperty('KNOWS', 'since', BigInt(2024))
+      )).resolves.toEqual([edgeId]);
+
+      await db.write(async (txn) => {
+        await txn.setProperty(bobId, 'email', 'alice@example.com');
+        await expect(txn.findNodesByLabelProperty(
+          'Person', 'email', 'alice@example.com'
+        )).resolves.toEqual([aliceId, bobId]);
+      });
+
+      await db.dropNodePropertyIndex('Person', 'email');
+      await expect(db.read(async (txn) =>
+        txn.findNodesByLabelProperty('Person', 'email', 'alice@example.com')
+      )).rejects.toMatchObject({ code: LatticeErrorCode.Unsupported });
+    });
+  });
+
   describe('Streams', () => {
     beforeEach(async () => {
       db = new Database(dbPath, { create: true });

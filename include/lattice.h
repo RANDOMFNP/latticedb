@@ -322,6 +322,34 @@ lattice_error lattice_get_all_nodes_txn(
     size_t* count_out
 );
 
+/* Create or drop an explicit equality index for a node label/property pair.
+ * Creation scans existing matching nodes. These schema operations fail with
+ * LATTICE_ERROR_LOCK_TIMEOUT while a write transaction is active. */
+lattice_error lattice_node_property_index_create(
+    lattice_database* db,
+    const char* label,
+    const char* property
+);
+
+lattice_error lattice_node_property_index_drop(
+    lattice_database* db,
+    const char* label,
+    const char* property
+);
+
+/* Find visible node IDs through an explicit label/property equality index.
+ * Returns LATTICE_ERROR_UNSUPPORTED if the requested index does not exist.
+ * The caller owns *node_ids_out and must use lattice_free_node_ids(). */
+lattice_error lattice_nodes_find_by_label_property(
+    lattice_txn* txn,
+    const char* label,
+    const char* property,
+    const lattice_value* value,
+    size_t limit,
+    lattice_node_id** node_ids_out,
+    size_t* count_out
+);
+
 /* Free an array returned by lattice_get_nodes_by_label. */
 void lattice_free_node_ids(lattice_node_id* node_ids, size_t count);
 
@@ -699,6 +727,34 @@ lattice_error lattice_edge_remove_property(
     lattice_edge_id edge_id,
     const char* key
 );
+
+/* Create or drop an explicit equality index for an edge type/property pair. */
+lattice_error lattice_edge_property_index_create(
+    lattice_database* db,
+    const char* edge_type,
+    const char* property
+);
+
+lattice_error lattice_edge_property_index_drop(
+    lattice_database* db,
+    const char* edge_type,
+    const char* property
+);
+
+/* Find visible edge IDs through an explicit type/property equality index.
+ * Returns LATTICE_ERROR_UNSUPPORTED if the requested index does not exist.
+ * The caller owns *edge_ids_out and must use lattice_free_edge_ids(). */
+lattice_error lattice_edges_find_by_type_property(
+    lattice_txn* txn,
+    const char* edge_type,
+    const char* property,
+    const lattice_value* value,
+    size_t limit,
+    lattice_edge_id** edge_ids_out,
+    size_t* count_out
+);
+
+void lattice_free_edge_ids(lattice_edge_id* edge_ids, size_t count);
 
 /*
  * Edge traversal operations

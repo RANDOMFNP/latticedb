@@ -554,6 +554,26 @@ export class Transaction {
     return this.ffi.getNodesByLabelInTxn(this.txnHandle!, label);
   }
 
+  async findNodesByLabelProperty(
+    label: string,
+    property: string,
+    value: PropertyValue,
+    limit = 100
+  ): Promise<bigint[]> {
+    this.ensureActive();
+    return this.ffi.findNodesByLabelProperty(this.txnHandle!, label, property, value, limit);
+  }
+
+  async findEdgesByTypeProperty(
+    edgeType: string,
+    property: string,
+    value: PropertyValue,
+    limit = 100
+  ): Promise<bigint[]> {
+    this.ensureActive();
+    return this.ffi.findEdgesByTypeProperty(this.txnHandle!, edgeType, property, value, limit);
+  }
+
   /**
    * Search for similar vectors inside this transaction.
    */

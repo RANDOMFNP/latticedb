@@ -240,6 +240,26 @@ export class Database {
     return this.ffi!.getNodesByLabel(this.dbHandle!, label);
   }
 
+  async createNodePropertyIndex(label: string, property: string): Promise<void> {
+    this.ensureOpen();
+    this.ffi!.createNodePropertyIndex(this.dbHandle!, label, property);
+  }
+
+  async dropNodePropertyIndex(label: string, property: string): Promise<void> {
+    this.ensureOpen();
+    this.ffi!.dropNodePropertyIndex(this.dbHandle!, label, property);
+  }
+
+  async createEdgePropertyIndex(edgeType: string, property: string): Promise<void> {
+    this.ensureOpen();
+    this.ffi!.createEdgePropertyIndex(this.dbHandle!, edgeType, property);
+  }
+
+  async dropEdgePropertyIndex(edgeType: string, property: string): Promise<void> {
+    this.ensureOpen();
+    this.ffi!.dropEdgePropertyIndex(this.dbHandle!, edgeType, property);
+  }
+
   async readStream(
     stream: string,
     options: { afterSequence?: bigint; limit?: number; timeoutMs?: number } = {}

@@ -518,6 +518,78 @@ class Transaction:
             if ids_ptr:
                 lib._lib.lattice_free_node_ids(ids_ptr, count.value)
 
+    def find_nodes_by_label_property(
+        self,
+        label: str,
+        property_key: str,
+        value: PropertyValue,
+        *,
+        limit: int = 100,
+    ) -> List[int]:
+        """Find nodes using a required explicit label/property equality index."""
+        if self._handle is None:
+            raise RuntimeError("Transaction not started")
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+
+        lib = get_lib()
+        c_value = LatticeValue()
+        value_ref = python_to_value(value, c_value)
+        ids_ptr = ctypes.POINTER(LatticeNodeId)()
+        count = ctypes.c_size_t(0)
+        try:
+            code = lib._lib.lattice_nodes_find_by_label_property(
+                self._handle,
+                label.encode("utf-8"),
+                property_key.encode("utf-8"),
+                byref(c_value),
+                limit,
+                byref(ids_ptr),
+                byref(count),
+            )
+            check_error(code)
+            return [ids_ptr[i] for i in range(count.value)] if ids_ptr else []
+        finally:
+            del value_ref
+            if ids_ptr:
+                lib._lib.lattice_free_node_ids(ids_ptr, count.value)
+
+    def find_edges_by_type_property(
+        self,
+        edge_type: str,
+        property_key: str,
+        value: PropertyValue,
+        *,
+        limit: int = 100,
+    ) -> List[int]:
+        """Find edge IDs using a required explicit type/property equality index."""
+        if self._handle is None:
+            raise RuntimeError("Transaction not started")
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+
+        lib = get_lib()
+        c_value = LatticeValue()
+        value_ref = python_to_value(value, c_value)
+        ids_ptr = ctypes.POINTER(c_uint64)()
+        count = ctypes.c_size_t(0)
+        try:
+            code = lib._lib.lattice_edges_find_by_type_property(
+                self._handle,
+                edge_type.encode("utf-8"),
+                property_key.encode("utf-8"),
+                byref(c_value),
+                limit,
+                byref(ids_ptr),
+                byref(count),
+            )
+            check_error(code)
+            return [ids_ptr[i] for i in range(count.value)] if ids_ptr else []
+        finally:
+            del value_ref
+            if ids_ptr:
+                lib._lib.lattice_free_edge_ids(ids_ptr, count.value)
+
     def set_vector(
         self,
         node_id: int,

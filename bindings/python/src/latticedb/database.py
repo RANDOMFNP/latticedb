@@ -365,6 +365,50 @@ class Database:
             if ids_ptr:
                 lib._lib.lattice_free_node_ids(ids_ptr, count.value)
 
+    def create_node_property_index(self, label: str, property_key: str) -> None:
+        """Create an explicit equality index for a node label/property pair."""
+        if self._handle is None:
+            raise RuntimeError("Database is not open")
+        code = get_lib()._lib.lattice_node_property_index_create(
+            self._handle,
+            label.encode("utf-8"),
+            property_key.encode("utf-8"),
+        )
+        check_error(code)
+
+    def drop_node_property_index(self, label: str, property_key: str) -> None:
+        """Drop an explicit node property index."""
+        if self._handle is None:
+            raise RuntimeError("Database is not open")
+        code = get_lib()._lib.lattice_node_property_index_drop(
+            self._handle,
+            label.encode("utf-8"),
+            property_key.encode("utf-8"),
+        )
+        check_error(code)
+
+    def create_edge_property_index(self, edge_type: str, property_key: str) -> None:
+        """Create an explicit equality index for an edge type/property pair."""
+        if self._handle is None:
+            raise RuntimeError("Database is not open")
+        code = get_lib()._lib.lattice_edge_property_index_create(
+            self._handle,
+            edge_type.encode("utf-8"),
+            property_key.encode("utf-8"),
+        )
+        check_error(code)
+
+    def drop_edge_property_index(self, edge_type: str, property_key: str) -> None:
+        """Drop an explicit edge property index."""
+        if self._handle is None:
+            raise RuntimeError("Database is not open")
+        code = get_lib()._lib.lattice_edge_property_index_drop(
+            self._handle,
+            edge_type.encode("utf-8"),
+            property_key.encode("utf-8"),
+        )
+        check_error(code)
+
     def read_stream(
         self,
         stream: str,
