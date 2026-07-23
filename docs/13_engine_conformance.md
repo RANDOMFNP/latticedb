@@ -339,7 +339,6 @@ Current CLI import compatibility is intentionally narrower than the logical valu
 The following are intentionally left open for now:
 
 - on-disk format compatibility
-- concurrent writer conflict resolution for overlapping live write transactions, including pre-commit visibility and whether conflicts resolve by abort, blocking, mutation order, or commit order
 - exact map iteration order
 - exact vector distance values
 - exact BM25/FTS score values
@@ -368,7 +367,7 @@ The current extracted suite already covers black-box cases drawn from these sour
   - own-write visibility
   - newly started transactions observe committed state
   - rollback cleanup
-  - overlapping live writer behavior intentionally left out of the portable contract
+  - rejection of a second live writer on the same database handle
 - `tests/integration/query_mutation_test.zig`
   - mutation atomicity
   - edge-specific mutation semantics
@@ -406,4 +405,6 @@ That adapter-specific knowledge is intentional; it lets the suite stay engine-ne
 
 1. Widen the canonical dump conformance coverage as new value shapes or exported fields are added.
 2. Write a cleaner engine-neutral crash-injection interface if `latticedb-go` needs a different recovery trigger than the current file-reset harness.
-3. Decide and extract black-box coverage for concurrent writer conflict semantics if cross-engine portability needs them.
+3. Extend the writer-contention coverage if a future engine introduces
+   cross-handle or cross-process coordination beyond the current per-handle
+   single-writer contract.

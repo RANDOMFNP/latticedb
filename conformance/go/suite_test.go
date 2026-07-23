@@ -388,6 +388,20 @@ func TestConformanceTransactionOwnWritesCommitAndRollback(t *testing.T) {
 	rollbackTx(t, readOnlyTx)
 
 	writer := beginTx(t, db, false)
+	secondWriter, err := db.Begin(false)
+	if err == nil {
+		_ = secondWriter.Rollback()
+		_ = writer.Rollback()
+		t.Fatalf("expected a second live writer to be rejected")
+	}
+
+	concurrentReader, err := db.Begin(true)
+	if err != nil {
+		_ = writer.Rollback()
+		t.Fatalf("begin reader alongside writer: %v", err)
+	}
+	rollbackTx(t, concurrentReader)
+
 	var tempID uint64
 	tempNode, err := writer.CreateNode(CreateNodeOptions{
 		Labels:     []string{"Temp"},

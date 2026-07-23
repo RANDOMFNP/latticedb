@@ -112,6 +112,8 @@ interface DatabaseOptions {
 - `await db.vectorSearch(vector, options?)` - k-NN vector search
 - `await db.ftsSearch(query, options?)` - Full-text search
 - `await db.ftsSearchFuzzy(query, options?)` - Fuzzy full-text search
+- `await db.createNodePropertyIndex(label, property)` / `dropNodePropertyIndex(...)` - Manage explicit node equality indexes
+- `await db.createEdgePropertyIndex(edgeType, property)` / `dropEdgePropertyIndex(...)` - Manage explicit edge equality indexes
 - `await db.readStream(stream, options?)` - Read durable stream records by cursor
 - `await db.getStreamOffset(stream, consumer)` - Read a committed consumer offset
 - `await db.changes(options?)` - Read the built-in graph changefeed
@@ -129,6 +131,8 @@ interface DatabaseOptions {
 - `await txn.getProperty(nodeId, key)` - Get a property value
 - `await txn.getOutgoingEdges(nodeId)` - Get outgoing edges from a node
 - `await txn.getIncomingEdges(nodeId)` - Get incoming edges to a node
+- `await txn.findNodesByLabelProperty(label, property, value, limit?)` - Indexed node equality lookup
+- `await txn.findEdgesByTypeProperty(edgeType, property, value, limit?)` - Indexed edge equality lookup
 - `txn.isReadOnly()` / `txn.isActive()` - Transaction state
 
 #### Write Operations

@@ -18,18 +18,16 @@ zig build                  # build everything
 
 ```bash
 zig build                      # Build everything
-zig build library              # Build static library only
+zig build lib                  # Build static library only
 zig build cli                  # Build CLI tool only
-zig build amalgamation         # Create single-file distribution
 zig build shared               # Build shared library for bindings
 ```
 
 ## Optimized Builds
 
 ```bash
-zig build release-safe         # Release build with safety checks
-zig build release-fast         # Optimized release build
-zig build -Doptimize=ReleaseFast   # Alternative optimized build
+zig build -Doptimize=ReleaseSafe   # Release build with safety checks
+zig build -Doptimize=ReleaseFast   # Optimized release build
 ```
 
 ## Building Language Bindings

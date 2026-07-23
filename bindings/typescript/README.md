@@ -151,6 +151,8 @@ interface DatabaseOptions {
 - `await db.vectorSearch(vector, options?)` - k-NN vector search
 - `await db.ftsSearch(query, options?)` - Full-text search
 - `await db.ftsSearchFuzzy(query, options?)` - Fuzzy full-text search
+- `await db.createNodePropertyIndex(label, property)` / `dropNodePropertyIndex(...)` - Manage explicit node equality indexes
+- `await db.createEdgePropertyIndex(edgeType, property)` / `dropEdgePropertyIndex(...)` - Manage explicit edge equality indexes
 - `await db.readStream(stream, options?)` - Read durable stream records by cursor
 - `await db.getStreamOffset(stream, consumer)` - Read a committed consumer offset
 - `await db.changes(options?)` - Read the built-in graph changefeed
@@ -168,6 +170,8 @@ interface DatabaseOptions {
 - `await txn.getProperty(nodeId, key)` - Get a property value
 - `await txn.getOutgoingEdges(nodeId)` - Get outgoing edges from a node
 - `await txn.getIncomingEdges(nodeId)` - Get incoming edges to a node
+- `await txn.findNodesByLabelProperty(label, property, value, limit?)` - Indexed node equality lookup
+- `await txn.findEdgesByTypeProperty(edgeType, property, value, limit?)` - Indexed edge equality lookup
 - `txn.isReadOnly()` / `txn.isActive()` - Transaction state
 
 #### Write Operations
@@ -212,6 +216,26 @@ await db.write(async (txn) => {
 });
 
 await db.close();
+```
+
+### Property Indexes
+
+Property equality indexes are explicit and durable. Create them outside an
+active write transaction; lookup fails instead of silently scanning when the
+requested index does not exist.
+
+```typescript
+await db.createNodePropertyIndex("Person", "email");
+
+const nodeIds = await db.read((txn) =>
+  txn.findNodesByLabelProperty("Person", "email", "alice@example.com", 10)
+);
+
+// Inline Cypher equality can use the same index.
+const rows = await db.query(
+  "MATCH (p:Person {email: $email}) RETURN p",
+  { email: "alice@example.com" }
+);
 ```
 
 ### Full-Text Search

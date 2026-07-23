@@ -386,13 +386,19 @@ We store the actual bytes, not fixed-size slots. This supports:
 
 Internal nodes store separator keys, not full key-value pairs. This maximizes fanout (keys per internal node).
 
-### Delete Compaction Without Rebalancing
+### Delete Compaction and Leaf Merging
 
 Deletes remove the slot, rebuild the surviving leaf entries contiguously, and
-free any overflow chain owned by the removed entry. The implementation still
-does not merge or redistribute underfull pages, so a delete-heavy workload can
-leave low-density leaves, but the freed space within each leaf is reusable
-immediately by later inserts or updates.
+free any overflow chain owned by the removed entry. Afterward, adjacent leaves
+under the same parent are merged whenever their combined payload fits on one
+page. The redundant leaf is unlinked and returned to the freelist, and a root
+with only that leaf remaining is collapsed. Space within a surviving leaf is
+reusable immediately by later inserts or updates, while reclaimed pages are
+reused by any later database allocation.
+
+The implementation does not yet redistribute entries between leaves or merge
+internal nodes across parent boundaries. Those omissions affect tree density,
+not lookup or scan correctness.
 
 ### Page-Based, With Explicit Overflow
 

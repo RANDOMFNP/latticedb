@@ -29,7 +29,11 @@ Transactions guarantee four properties:
 | **I**solation | Internal target: transactions don't interfere | Timestamps + MVCC |
 | **D**urability | Committed = permanent | WAL + fsync |
 
-The isolation row describes the transaction manager's intended machinery, not a stronger public guarantee than the engine currently exposes end-to-end. In particular, overlapping live write transactions are still outside the portable compatibility contract; see [13_engine_conformance.md](13_engine_conformance.md).
+The isolation row describes the transaction manager's intended machinery, not
+a stronger public guarantee than the engine currently exposes end-to-end. The
+public contract permits one live read-write transaction per database handle;
+starting another returns the public lock-timeout/contention error. See
+[13_engine_conformance.md](13_engine_conformance.md).
 
 ## The Core Data Structures
 

@@ -188,6 +188,31 @@ float vector[128] = { /* ... */ };
 lattice_node_set_vector(txn, node_id, "embedding", vector, 128);
 ```
 
+### Explicit Property Indexes
+
+Create equality indexes outside an active write transaction. Indexed lookup
+returns `LATTICE_ERROR_UNSUPPORTED` if the requested definition does not exist;
+it never silently falls back to a scan.
+
+```c
+lattice_node_property_index_create(db, "Person", "email");
+
+lattice_value email = {
+    .type = LATTICE_VALUE_STRING,
+    .data.string_val = { "alice@example.com", 17 }
+};
+lattice_node_id* ids = NULL;
+size_t count = 0;
+lattice_nodes_find_by_label_property(
+    txn, "Person", "email", &email, 10, &ids, &count
+);
+lattice_free_node_ids(ids, count);
+```
+
+Edge equivalents are `lattice_edge_property_index_create()`,
+`lattice_edge_property_index_drop()`, and
+`lattice_edges_find_by_type_property()`.
+
 ## Edge Operations
 
 ### Create / Delete

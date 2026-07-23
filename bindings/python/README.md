@@ -114,6 +114,8 @@ Database(
 - `vector_search(vector, k=10, ef_search=64)` - k-NN vector search
 - `fts_search(query, limit=10)` - Full-text search
 - `fts_search_fuzzy(query, limit=10, max_distance=0, min_term_length=0)` - Fuzzy full-text search
+- `create_node_property_index(label, property_key)` / `drop_node_property_index(...)` - Manage explicit node equality indexes
+- `create_edge_property_index(edge_type, property_key)` / `drop_edge_property_index(...)` - Manage explicit edge equality indexes
 - `read_stream(stream, after_sequence=0, limit=100, timeout_ms=0)` - Read durable stream records by cursor
 - `get_stream_offset(stream, consumer)` - Read a committed consumer offset
 - `changes(after_sequence=0, limit=100, timeout_ms=0)` - Read the built-in graph changefeed
@@ -129,6 +131,8 @@ Database(
 - `get_property(node_id, key)` - Get a property value
 - `get_outgoing_edges(node_id)` - Get outgoing edges from a node
 - `get_incoming_edges(node_id)` - Get incoming edges to a node
+- `find_nodes_by_label_property(label, property_key, value, limit=100)` - Indexed node equality lookup
+- `find_edges_by_type_property(edge_type, property_key, value, limit=100)` - Indexed edge equality lookup
 - `is_read_only` / `is_active` - Transaction state
 
 #### Write Operations
@@ -163,6 +167,27 @@ with Database("vectors.db", create=True, enable_vectors=True, vector_dimensions=
         node_ids = txn.batch_insert_vectors("Document", vectors)
         print(f"Created {len(node_ids)} nodes")
         txn.commit()
+```
+
+### Property Indexes
+
+Property equality indexes are explicit and durable. Create them outside an
+active write transaction; lookup fails instead of silently scanning when the
+requested index does not exist.
+
+```python
+db.create_node_property_index("Person", "email")
+
+with db.read() as txn:
+    node_ids = txn.find_nodes_by_label_property(
+        "Person", "email", "alice@example.com", limit=10
+    )
+
+# Inline Cypher equality can use the same index.
+rows = db.query(
+    "MATCH (p:Person {email: $email}) RETURN p",
+    {"email": "alice@example.com"},
+)
 ```
 
 ### Full-Text Search

@@ -329,6 +329,7 @@ LatticeDB's inverted index with BM25 scoring is ~300x faster than SQLite FTS5 an
 
 **Graph**
 - Nodes and edges with labels and arbitrary properties
+- Durable explicit equality indexes for scoped node and edge properties
 - Multi-hop traversal, variable-length paths (`*1..3`)
 - ACID transactions with commit/rollback and crash recovery
 - MERGE, WITH, UNWIND, aggregations (`count`, `sum`, `avg`, `min`, `max`, `collect`)
@@ -399,6 +400,7 @@ zig build -Doptimize=ReleaseFast   # optimized build
 
 - [Getting Started](docs/getting_started.md)
 - [Durable Streams and Graph Changefeeds](docs/14_durable_streams.md)
+- [Property Indexes](docs/property_index_design.md)
 - [Examples Overview](examples/README.md)
 - [CLI Quickstart](examples/cli/README.md)
 - [Architecture Overview](docs/00_introduction.md)

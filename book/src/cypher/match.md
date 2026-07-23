@@ -22,6 +22,17 @@ Match nodes with inline property filtering:
 MATCH (p:Person {name: "Alice"}) RETURN p
 ```
 
+When an explicit index exists for the label/property pair, independent inline
+equality patterns use it automatically, including parameterized values:
+
+```cypher
+MATCH (p:Person {email: $email}) RETURN p
+```
+
+Create the index through the C, Python, or TypeScript database API before
+running the query. General `WHERE p.email = $email` index selection is not yet
+implemented.
+
 ## Variables
 
 Parentheses bind a matched node to a variable:
