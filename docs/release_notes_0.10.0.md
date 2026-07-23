@@ -64,8 +64,8 @@ equality patterns.
   conversation-storage matrices.
 - `zig build integration-test` passed all 199 integration tests.
 - `zig build crash-test` and `zig build fuzz` passed on Linux and macOS.
-- Container integration passed on Ubuntu 22.04, Ubuntu 24.04, Debian 12, and
-  Fedora 41.
+- Container integration passed on Alpine 3.19, Debian 12 (Bookworm), Fedora 40,
+  Ubuntu 22.04, and Ubuntu 24.04.
 - Python: 121 tests passed; strict `mypy` and the CI `ruff` source check passed.
 - TypeScript: 90 tests passed; build and lint passed.
 - Go: the cgo binding suite and the portable engine conformance suite passed
