@@ -61,9 +61,26 @@ changes and preserve reader snapshot visibility.
 
 The Cypher planner uses an available index for independent inline equality
 patterns, including parameterized forms such as
-`MATCH (n:Person {email: $email}) RETURN n`. It retains the ordinary property
-filter above the index scan as a semantic guard. General `WHERE` predicate
-selection remains a separate planner optimization.
+`MATCH (n:Person {email: $email}) RETURN n`. It also recognizes equality
+predicates in the `WHERE` clause immediately following a `MATCH`:
+
+```cypher
+MATCH (n:Person)
+WHERE n.email = $email
+RETURN n
+```
+
+The comparison may be reversed, and eligible equality predicates may appear
+within an `AND` expression. The indexed value must be independent of the row,
+such as a literal, parameter, list, or map composed from those values. The
+planner does not constrain scans from `OR` branches because doing so could omit
+valid rows. It retains the ordinary `WHERE` or inline-property filter above the
+index scan as a semantic guard.
+
+Index selection currently applies while planning the labeled node scan in the
+immediately preceding `MATCH`. It does not rewrite scans from earlier query
+parts across `WITH` boundaries, and relationship-property predicates continue
+to use ordinary filtering.
 
 ## Scan-Backed Convenience APIs
 

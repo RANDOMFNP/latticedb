@@ -30,8 +30,18 @@ MATCH (p:Person {email: $email}) RETURN p
 ```
 
 Create the index through the C, Python, or TypeScript database API before
-running the query. General `WHERE p.email = $email` index selection is not yet
-implemented.
+running the query. Equality predicates in the immediately following `WHERE`
+also use an available index:
+
+```cypher
+MATCH (p:Person)
+WHERE p.email = $email
+RETURN p
+```
+
+The comparison may be reversed or nested within an `AND` expression. `OR`
+predicates remain scan-backed so the planner cannot discard rows from the
+other branch.
 
 ## Variables
 

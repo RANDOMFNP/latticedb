@@ -2546,20 +2546,59 @@ test "database: explicit property indexes track direct and transactional mutatio
         defer allocator.free(edge_ids);
         try std.testing.expectEqualSlices(u64, &.{edge_id}, edge_ids);
 
-        // Prove the planner selects the property index for an inline parameter
-        // predicate: temporarily hide Alice from the ordinary label index.
+        // Prove the planner selects the property index for inline and WHERE
+        // equality predicates: temporarily hide both nodes from the ordinary
+        // label index.
         const person_id = try db.symbol_table.lookup("Person");
         try db.label_index.remove(person_id, alice);
-        var params = std.StringHashMap(PropertyValue).init(allocator);
-        defer params.deinit();
-        try params.put("email", .{ .string_val = "alice@example.com" });
-        var indexed_query = try db.queryWithParams(
-            "MATCH (n:Person {email: $email}) RETURN n",
-            &params,
-        );
-        defer indexed_query.deinit();
-        try std.testing.expectEqual(@as(usize, 1), indexed_query.rowCount());
-        try db.label_index.add(person_id, alice);
+        try db.label_index.remove(person_id, bob);
+        {
+            defer {
+                db.label_index.add(person_id, alice) catch @panic("failed to restore Alice label index entry");
+                db.label_index.add(person_id, bob) catch @panic("failed to restore Bob label index entry");
+            }
+
+            var params = std.StringHashMap(PropertyValue).init(allocator);
+            defer params.deinit();
+            try params.put("email", .{ .string_val = "alice@example.com" });
+            try params.put("guard", .{ .bool_val = true });
+
+            var inline_query = try db.queryWithParams(
+                "MATCH (n:Person {email: $email}) RETURN n",
+                &params,
+            );
+            defer inline_query.deinit();
+            try std.testing.expectEqual(@as(usize, 1), inline_query.rowCount());
+
+            var where_query = try db.queryWithParams(
+                "MATCH (n:Person) WHERE n.email = $email RETURN n",
+                &params,
+            );
+            defer where_query.deinit();
+            try std.testing.expectEqual(@as(usize, 1), where_query.rowCount());
+
+            var reversed_query = try db.queryWithParams(
+                "MATCH (n:Person) WHERE $email = n.email RETURN n",
+                &params,
+            );
+            defer reversed_query.deinit();
+            try std.testing.expectEqual(@as(usize, 1), reversed_query.rowCount());
+
+            var conjunction_query = try db.queryWithParams(
+                "MATCH (n:Person) WHERE $guard AND n.email = $email RETURN n",
+                &params,
+            );
+            defer conjunction_query.deinit();
+            try std.testing.expectEqual(@as(usize, 1), conjunction_query.rowCount());
+
+            // An OR cannot safely constrain the scan to either branch.
+            var disjunction_query = try db.queryWithParams(
+                "MATCH (n:Person) WHERE n.email = $email OR n.email = \"bob@example.com\" RETURN n",
+                &params,
+            );
+            defer disjunction_query.deinit();
+            try std.testing.expectEqual(@as(usize, 0), disjunction_query.rowCount());
+        }
 
         try db.removeEdgePropertyById(null, edge_id, "since");
         const removed = try db.findEdgesByTypeProperty(null, "KNOWS", "since", .{ .int_val = 2024 }, 10);

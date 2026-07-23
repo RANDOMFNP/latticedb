@@ -176,7 +176,16 @@ pub const QueryPlanner = struct {
         while (clause_idx < query.clauses.len) : (clause_idx += 1) {
             const clause = query.clauses[clause_idx];
             switch (clause) {
-                .match => |m| current_op = try self.planMatch(m, current_op),
+                .match => |m| {
+                    const where_hint: ?*const ast.Expression = if (clause_idx + 1 < query.clauses.len)
+                        switch (query.clauses[clause_idx + 1]) {
+                            .where => |w| w.condition,
+                            else => null,
+                        }
+                    else
+                        null;
+                    current_op = try self.planMatch(m, current_op, where_hint);
+                },
                 .where => |w| current_op = try self.planWhere(w, current_op),
                 .return_ => |r| {
                     var input_for_return = current_op;
@@ -209,18 +218,28 @@ pub const QueryPlanner = struct {
     }
 
     /// Plan a MATCH clause
-    fn planMatch(self: *Self, match: *const ast.MatchClause, input: ?Operator) PlannerError!Operator {
+    fn planMatch(
+        self: *Self,
+        match: *const ast.MatchClause,
+        input: ?Operator,
+        where_hint: ?*const ast.Expression,
+    ) PlannerError!Operator {
         var op = input;
 
         for (match.patterns) |pattern| {
-            op = try self.planPattern(pattern, op);
+            op = try self.planPattern(pattern, op, where_hint);
         }
 
         return op orelse PlannerError.InvalidQuery;
     }
 
     /// Plan a single pattern
-    fn planPattern(self: *Self, pattern: ast.Pattern, input: ?Operator) PlannerError!Operator {
+    fn planPattern(
+        self: *Self,
+        pattern: ast.Pattern,
+        input: ?Operator,
+        where_hint: ?*const ast.Expression,
+    ) PlannerError!Operator {
         var op = input;
         var prev_node_slot: ?u8 = null;
 
@@ -280,15 +299,35 @@ pub const QueryPlanner = struct {
 
                         const database = self.storage.database orelse return PlannerError.MissingStorage;
                         var scan_label_index: usize = 0;
-                        var indexed_property: ?ast.PropertyEntry = null;
+                        var indexed_property: ?IndexedProperty = null;
                         if (node_pattern.properties) |properties| {
                             search: for (node_pattern.labels, 0..) |label_name, label_idx| {
                                 for (properties) |property| {
                                     if (!isIndependentExpression(property.value)) continue;
                                     if (database.hasNodePropertyIndex(label_name, property.key) catch false) {
                                         scan_label_index = label_idx;
-                                        indexed_property = property;
+                                        indexed_property = .{
+                                            .name = property.key,
+                                            .value = property.value,
+                                        };
                                         break :search;
+                                    }
+                                }
+                            }
+                        }
+                        if (indexed_property == null) {
+                            if (node_var_name) |variable_name| {
+                                if (where_hint) |condition| {
+                                    if (self.findWherePropertyIndex(
+                                        variable_name,
+                                        node_pattern.labels,
+                                        condition,
+                                    )) |candidate| {
+                                        scan_label_index = candidate.label_index;
+                                        indexed_property = .{
+                                            .name = candidate.property_name,
+                                            .value = candidate.value,
+                                        };
                                     }
                                 }
                             }
@@ -305,7 +344,7 @@ pub const QueryPlanner = struct {
                                 self.allocator,
                                 slot,
                                 scan_label_name,
-                                property.key,
+                                property.name,
                                 property.value,
                                 database,
                             ) catch return PlannerError.OutOfMemory;
@@ -533,6 +572,80 @@ pub const QueryPlanner = struct {
                 break :blk true;
             },
             else => false,
+        };
+    }
+
+    const IndexedProperty = struct {
+        name: []const u8,
+        value: *const ast.Expression,
+    };
+
+    const WherePropertyIndex = struct {
+        label_index: usize,
+        property_name: []const u8,
+        value: *const ast.Expression,
+    };
+
+    fn findWherePropertyIndex(
+        self: *Self,
+        variable_name: []const u8,
+        labels: []const []const u8,
+        expr: *const ast.Expression,
+    ) ?WherePropertyIndex {
+        const binary = switch (expr.*) {
+            .binary => |binary| binary,
+            else => return null,
+        };
+
+        if (binary.operator == .and_) {
+            return self.findWherePropertyIndex(variable_name, labels, binary.left) orelse
+                self.findWherePropertyIndex(variable_name, labels, binary.right);
+        }
+        if (binary.operator != .eq) return null;
+
+        const indexed_property = propertyEqualityForVariable(
+            variable_name,
+            binary.left,
+            binary.right,
+        ) orelse propertyEqualityForVariable(
+            variable_name,
+            binary.right,
+            binary.left,
+        ) orelse return null;
+
+        const database = self.storage.database orelse return null;
+        for (labels, 0..) |label_name, label_idx| {
+            if (database.hasNodePropertyIndex(label_name, indexed_property.name) catch false) {
+                return .{
+                    .label_index = label_idx,
+                    .property_name = indexed_property.name,
+                    .value = indexed_property.value,
+                };
+            }
+        }
+        return null;
+    }
+
+    fn propertyEqualityForVariable(
+        variable_name: []const u8,
+        property_expr: *const ast.Expression,
+        value_expr: *const ast.Expression,
+    ) ?IndexedProperty {
+        if (!isIndependentExpression(value_expr)) return null;
+
+        const property_access = switch (property_expr.*) {
+            .property_access => |property_access| property_access,
+            else => return null,
+        };
+        const object_variable = switch (property_access.object.*) {
+            .variable => |variable| variable,
+            else => return null,
+        };
+        if (!std.mem.eql(u8, object_variable.name, variable_name)) return null;
+
+        return .{
+            .name = property_access.property,
+            .value = value_expr,
         };
     }
 
