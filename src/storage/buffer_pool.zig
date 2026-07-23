@@ -291,6 +291,37 @@ pub const BufferPool = struct {
         }
     }
 
+    /// Flush and evict every cached page, then remove the physical free tail.
+    ///
+    /// Holding the page-table mutex across eviction and truncation prevents a
+    /// concurrent fetch from installing a frame for a page that is about to
+    /// disappear. Any pinned frame rejects the maintenance operation.
+    pub fn truncateFreeTail(self: *Self) !page_manager.TruncateStats {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        for (self.frames) |*frame| {
+            if (frame.page_id != NULL_PAGE and frame.isPinned()) {
+                return BufferPoolError.BufferPoolFull;
+            }
+        }
+
+        for (self.frames, 0..) |*frame, frame_index| {
+            if (frame.page_id == NULL_PAGE) continue;
+            if (frame.dirty) {
+                self.pm.writePage(frame.page_id, frame.data) catch return BufferPoolError.IoError;
+                frame.dirty = false;
+            }
+
+            _ = self.page_table.remove(frame.page_id);
+            frame.page_id = NULL_PAGE;
+            frame.usage_count = 0;
+            self.free_list.append(self.allocator, @intCast(frame_index)) catch return BufferPoolError.IoError;
+        }
+
+        return self.pm.truncateFreeTail() catch return BufferPoolError.IoError;
+    }
+
     /// Get a page directly without pinning (for internal use).
     /// Returns null if page is not in the buffer pool.
     pub fn getPageIfPresent(self: *Self, page_id: PageId) ?*BufferFrame {

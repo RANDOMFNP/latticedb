@@ -58,6 +58,13 @@ pub const OpenOptions = struct {
     page_size: u32 = DEFAULT_PAGE_SIZE,
 };
 
+pub const TruncateStats = struct {
+    pages_before: u32,
+    pages_after: u32,
+    pages_removed: u32,
+    bytes_reclaimed: u64,
+};
+
 /// Manages page allocation and I/O for the database file.
 pub const PageManager = struct {
     allocator: Allocator,
@@ -309,6 +316,84 @@ pub const PageManager = struct {
         self.file.sync() catch return PageManagerError.IoError;
     }
 
+    /// Remove contiguous free pages from the physical end of the database.
+    ///
+    /// Callers must first flush and evict the buffer pool so this method sees
+    /// authoritative page contents and no cached frame can outlive truncation.
+    /// The retained freelist and header are persisted before the file shrinks;
+    /// a crash between those steps can leak tail pages temporarily but cannot
+    /// leave a freelist pointer beyond EOF.
+    pub fn truncateFreeTail(self: *Self) PageManagerError!TruncateStats {
+        if (self.read_only) return PageManagerError.PermissionDenied;
+
+        const pages_before = self.pageCount();
+        if (pages_before <= 1) {
+            return .{
+                .pages_before = pages_before,
+                .pages_after = pages_before,
+                .pages_removed = 0,
+                .bytes_reclaimed = 0,
+            };
+        }
+
+        const page_alignment = comptime std.mem.Alignment.fromByteUnits(4096);
+        const buf = self.allocator.alignedAlloc(u8, page_alignment, self.page_size) catch {
+            return PageManagerError.OutOfMemory;
+        };
+        defer self.allocator.free(buf);
+
+        var tail_start = pages_before;
+        while (tail_start > 1) {
+            const candidate = tail_start - 1;
+            try self.readPage(candidate, buf);
+            const header: *const PageHeader = @ptrCast(@alignCast(buf.ptr));
+            if (header.page_type != .free) break;
+            tail_start = candidate;
+        }
+
+        if (tail_start == pages_before) {
+            return .{
+                .pages_before = pages_before,
+                .pages_after = pages_before,
+                .pages_removed = 0,
+                .bytes_reclaimed = 0,
+            };
+        }
+
+        // Reconstruct the retained freelist from page types rather than
+        // patching arbitrary links in place. This also heals leaked free pages
+        // that were not reachable from the previous freelist head.
+        var freelist_head = NULL_PAGE;
+        var page_id: PageId = 1;
+        while (page_id < tail_start) : (page_id += 1) {
+            try self.readPage(page_id, buf);
+            const header: *PageHeader = @ptrCast(@alignCast(buf.ptr));
+            if (header.page_type != .free) continue;
+
+            @memset(buf, 0);
+            header.* = PageHeader.init(.free);
+            std.mem.writeInt(u32, buf[8..12], freelist_head, .little);
+            try self.writePage(page_id, buf);
+            freelist_head = page_id;
+        }
+
+        self.header.freelist_page = freelist_head;
+        try self.writeHeader();
+        try self.sync();
+
+        const new_size = @as(u64, tail_start) * self.page_size;
+        self.file.truncate(new_size) catch return PageManagerError.IoError;
+        try self.sync();
+
+        const pages_removed = pages_before - tail_start;
+        return .{
+            .pages_before = pages_before,
+            .pages_after = tail_start,
+            .pages_removed = pages_removed,
+            .bytes_reclaimed = @as(u64, pages_removed) * self.page_size,
+        };
+    }
+
     /// Get the file header (read-only).
     pub fn getHeader(self: *const Self) *const FileHeader {
         return &self.header;
@@ -429,6 +514,47 @@ test "allocate and free pages" {
     // Next allocation should reuse freed page
     const page4 = try pm.allocatePage();
     try std.testing.expectEqual(@as(PageId, 2), page4);
+}
+
+test "truncate free tail rebuilds retained freelist and shrinks file" {
+    const allocator = std.testing.allocator;
+
+    var posix_vfs = vfs.PosixVfs.init(allocator);
+    const vfs_impl = posix_vfs.vfs();
+    const path = "/tmp/lattice_pm_test_truncate_free_tail.db";
+    vfs_impl.delete(path) catch {};
+
+    var pm = try PageManager.init(allocator, vfs_impl, path, .{ .create = true });
+    defer {
+        pm.deinit();
+        vfs_impl.delete(path) catch {};
+    }
+
+    for (0..6) |_| _ = try pm.allocatePage();
+
+    const page_alignment = comptime std.mem.Alignment.fromByteUnits(4096);
+    const live_page = try allocator.alignedAlloc(u8, page_alignment, pm.getPageSize());
+    defer allocator.free(live_page);
+    @memset(live_page, 0);
+    const live_header: *PageHeader = @ptrCast(@alignCast(live_page.ptr));
+    live_header.* = PageHeader.init(.btree_leaf);
+    for ([_]PageId{ 1, 3, 4 }) |page_id| try pm.writePage(page_id, live_page);
+
+    try pm.freePage(2);
+    try pm.freePage(5);
+    try pm.freePage(6);
+
+    const stats = try pm.truncateFreeTail();
+    try std.testing.expectEqual(@as(u32, 7), stats.pages_before);
+    try std.testing.expectEqual(@as(u32, 5), stats.pages_after);
+    try std.testing.expectEqual(@as(u32, 2), stats.pages_removed);
+    try std.testing.expectEqual(@as(u64, 2 * DEFAULT_PAGE_SIZE), stats.bytes_reclaimed);
+    try std.testing.expectEqual(@as(u32, 5), pm.pageCount());
+
+    // The non-tail free page survives reconstruction and is allocated first.
+    try std.testing.expectEqual(@as(PageId, 2), try pm.allocatePage());
+    // Once the retained freelist is empty, growth resumes at the new EOF.
+    try std.testing.expectEqual(@as(PageId, 5), try pm.allocatePage());
 }
 
 test "read and write pages with checksum" {

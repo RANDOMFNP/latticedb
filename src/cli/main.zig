@@ -160,6 +160,7 @@ fn runCommand(
         .help => printUsage(stdout),
         .create => try cmdCreate(allocator, stdout, stderr, parsed_args),
         .info => try cmdInfo(allocator, stdout, stderr, parsed_args),
+        .compact => try cmdCompact(allocator, stdout, stderr, parsed_args),
         .count => try cmdCount(allocator, stdout, stderr, parsed_args),
         .query => try cmdQuery(allocator, stdout, stderr, parsed_args),
         .exec => try cmdExec(allocator, stdout, stderr, parsed_args),
@@ -703,6 +704,44 @@ fn cmdSchema(
     }
 }
 
+fn cmdCompact(
+    allocator: std.mem.Allocator,
+    stdout: anytype,
+    stderr: anytype,
+    parsed_args: *const Args,
+) !void {
+    const path = parsed_args.path.?;
+    const db = Database.open(allocator, path, .{}) catch |err| {
+        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    };
+    defer db.close();
+
+    const stats = db.compact() catch |err| {
+        return failCommand(stderr, "Failed to compact database: {s}", .{@errorName(err)});
+    };
+
+    switch (parsed_args.format) {
+        .table => {
+            output.printSuccess(stdout, "Compacted database: {s}", .{path});
+            try stdout.print("  Pages before:    {d}\n", .{stats.pages_before});
+            try stdout.print("  Pages after:     {d}\n", .{stats.pages_after});
+            try stdout.print("  Pages removed:   {d}\n", .{stats.pages_removed});
+            try stdout.print("  Bytes reclaimed: {d}\n", .{stats.bytes_reclaimed});
+        },
+        .json => try stdout.print(
+            "{{\"path\":\"{s}\",\"pages_before\":{d},\"pages_after\":{d},\"pages_removed\":{d},\"bytes_reclaimed\":{d}}}\n",
+            .{ path, stats.pages_before, stats.pages_after, stats.pages_removed, stats.bytes_reclaimed },
+        ),
+        .csv => {
+            try stdout.writeAll("path,pages_before,pages_after,pages_removed,bytes_reclaimed\n");
+            try stdout.print(
+                "{s},{d},{d},{d},{d}\n",
+                .{ path, stats.pages_before, stats.pages_after, stats.pages_removed, stats.bytes_reclaimed },
+            );
+        },
+    }
+}
+
 fn cmdCheck(
     allocator: std.mem.Allocator,
     stdout: anytype,
@@ -1026,6 +1065,7 @@ fn printUsage(writer: anytype) void {
         \\  Database:
         \\    create <path>       Create a new database
         \\    info <path>         Show database information
+        \\    compact <path>      Reclaim free pages from physical EOF
         \\    check <path>        Verify main database file checksums
         \\
         \\  Query:
@@ -1117,6 +1157,20 @@ fn printCommandHelp(writer: anytype, command: Command) void {
             \\
             \\Example:
             \\  lattice query mydb.lattice
+            \\
+        ) catch {},
+        .compact => writer.writeAll(
+            \\Usage: lattice compact <path> [options]
+            \\
+            \\Flush durable state, rebuild the retained freelist, and truncate
+            \\contiguous free pages from the physical end of the database.
+            \\Live pages are never relocated.
+            \\
+            \\Options:
+            \\  --format=<fmt>        Output format: table, json, csv
+            \\
+            \\Example:
+            \\  lattice compact mydb.lattice
             \\
         ) catch {},
         .check => writer.writeAll(

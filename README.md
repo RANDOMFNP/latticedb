@@ -353,6 +353,7 @@ LatticeDB's inverted index with BM25 scoring is ~300x faster than SQLite FTS5 an
 **Operations**
 - Single-file storage with write-ahead log for crash recovery
 - Durable named streams with explicit consumer offsets, manual trim, and graph changefeeds
+- Online freelist reuse plus `lattice compact` for safe physical tail reclamation
 - Zero configuration — open a file and start working
 - Embedded single-writer model for local applications
 - Clean C API; Python, TypeScript, and Go bindings wrap it

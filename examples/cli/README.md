@@ -8,6 +8,7 @@ It covers:
 - importing graph data from JSON
 - running a query from a `.cypher` file
 - checking database-file checksums
+- reclaiming free pages from physical EOF
 
 ## Files
 
@@ -61,6 +62,12 @@ Check the main database file:
 $LATTICE check /tmp/lattice-cli-example.lattice
 ```
 
+Reclaim any contiguous free pages at the end of the file:
+
+```bash
+$LATTICE compact /tmp/lattice-cli-example.lattice
+```
+
 ## Expected Shape
 
 After import, the graph contains:
@@ -72,3 +79,7 @@ After import, the graph contains:
 The sample query returns authored documents with person names and titles.
 
 `lattice check` validates the main database file page checksums. If a sibling `-wal` file exists, the CLI reports that it is present but not yet validated.
+
+`lattice compact` checkpoints durable state and truncates only a contiguous
+free tail. It does not relocate live pages, and reporting zero reclaimed bytes
+is normal when the final physical pages are still in use.

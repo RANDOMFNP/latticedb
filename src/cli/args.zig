@@ -28,6 +28,7 @@ pub const Command = enum {
     // Database
     create,
     info,
+    compact,
     check,
 
     // Query
@@ -53,6 +54,7 @@ pub const Command = enum {
     pub fn fromString(s: []const u8) ?Command {
         if (std.mem.eql(u8, s, "create")) return .create;
         if (std.mem.eql(u8, s, "info")) return .info;
+        if (std.mem.eql(u8, s, "compact")) return .compact;
         if (std.mem.eql(u8, s, "check")) return .check;
         if (std.mem.eql(u8, s, "query")) return .query;
         if (std.mem.eql(u8, s, "exec")) return .exec;
@@ -80,6 +82,7 @@ pub const Command = enum {
         return switch (self) {
             .create => "Create a new database",
             .info => "Show database information",
+            .compact => "Reclaim free pages from the end of a database file",
             .check => "Verify main database file checksums",
             .query => "Interactive Cypher REPL",
             .exec => "Execute a single query",

@@ -185,6 +185,18 @@ pub fn freePage(self: *Self, page_id: PageId) !void {
 
 This is a LIFO (stack) freelist - last freed is first allocated. Simple and efficient.
 
+### Physical Tail Reclamation
+
+Normal allocation reuses freelist pages without moving live pages, so file size
+does not need to grow again after deletes. To return space to the operating
+system, `lattice compact <path>` flushes and evicts the buffer pool, rebuilds
+the retained freelist, persists a head that excludes tail pages, and truncates
+the contiguous free run at physical EOF. Live pages and logical IDs never move.
+
+The header is synced before truncation. A crash between those steps can leave
+temporarily unreclaimed free pages, but cannot leave a freelist pointer beyond
+the new end of the file.
+
 ## Checksums
 
 Every page has a CRC32 checksum that covers bytes 8-4095 (everything after the checksum field itself).

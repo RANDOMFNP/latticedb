@@ -58,6 +58,7 @@ const edge_mod = lattice.graph.edge;
 const EdgeStore = edge_mod.EdgeStore;
 pub const EdgeRef = edge_mod.EdgeRef;
 pub const EdgeRefIterator = edge_mod.EdgeStore.EdgeRefIterator;
+pub const CompactStats = page_manager.TruncateStats;
 
 const label_index_mod = lattice.graph.label_index;
 const LabelIndex = label_index_mod.LabelIndex;
@@ -1029,6 +1030,24 @@ pub const Database = struct {
                 return DatabaseError.IoError;
             };
         }
+    }
+
+    /// Flush all durable state and remove contiguous freelist pages from EOF.
+    ///
+    /// Compaction is an exclusive maintenance operation. It never relocates a
+    /// live page, so stable IDs and persisted page references remain unchanged.
+    pub fn compact(self: *Self) DatabaseError!CompactStats {
+        if (self.read_only) return DatabaseError.ReadOnly;
+        if (self.txn_overlays.count() != 0) return DatabaseError.TransactionConflict;
+
+        try self.persistHnswIndex();
+        self.saveTreeRoots() catch return DatabaseError.IoError;
+        try self.checkpointWal(.truncate);
+
+        return self.buffer_pool.truncateFreeTail() catch |err| switch (err) {
+            error.BufferPoolFull => DatabaseError.BufferPoolFull,
+            else => DatabaseError.IoError,
+        };
     }
 
     /// Close the database and release all resources.
@@ -7082,6 +7101,36 @@ test "database open and close" {
 
     // Cleanup
     @import("compat").fs.cwd().deleteFile(path) catch {};
+}
+
+test "database compact truncates free tail and rejects active transactions" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_database_compact_test.ltdb";
+    const wal_path = "/tmp/lattice_database_compact_test.ltdb-wal";
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer {
+        @import("compat").fs.cwd().deleteFile(path) catch {};
+        @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    }
+
+    const db = try Database.open(allocator, path, .{ .create = true });
+    defer db.close();
+
+    const node_id = try db.createNode(null, &.{"Person"});
+    const tail_page = try db.page_manager.allocatePage();
+    try db.page_manager.freePage(tail_page);
+    const size_before = try db.page_manager.file.size();
+
+    var reader = try db.beginTransaction(.read_only);
+    try std.testing.expectError(DatabaseError.TransactionConflict, db.compact());
+    try db.abortTransaction(&reader);
+
+    const stats = try db.compact();
+    try std.testing.expect(stats.pages_removed >= 1);
+    try std.testing.expect(stats.bytes_reclaimed >= db.page_manager.getPageSize());
+    try std.testing.expect((try db.page_manager.file.size()) < size_before);
+    try std.testing.expect(try db.nodeExists(node_id));
 }
 
 test "database file not found" {
