@@ -166,7 +166,6 @@ fn runCommand(
         .labels => try cmdLabels(allocator, stdout, stderr, parsed_args),
         .types => try cmdTypes(allocator, stdout, stderr, parsed_args),
         .schema => try cmdSchema(allocator, stdout, stderr, parsed_args),
-        .compact => try cmdCompact(stdout, stderr, parsed_args),
         .check => try cmdCheck(allocator, stdout, stderr, parsed_args),
         .import => try cmdImport(allocator, stdout, stderr, parsed_args),
         .@"export" => try cmdExport(allocator, stdout, stderr, parsed_args),
@@ -704,12 +703,6 @@ fn cmdSchema(
     }
 }
 
-fn cmdCompact(stdout: anytype, stderr: anytype, parsed_args: *const Args) !void {
-    _ = stdout;
-    _ = parsed_args;
-    return failCommand(stderr, "The 'compact' command is reserved but not currently supported.", .{});
-}
-
 fn cmdCheck(
     allocator: std.mem.Allocator,
     stdout: anytype,
@@ -1141,12 +1134,6 @@ fn printCommandHelp(writer: anytype, command: Command) void {
             \\
             \\Example:
             \\  lattice check mydb.lattice
-            \\
-        ) catch {},
-        .compact => writer.writeAll(
-            \\Usage: lattice compact <path>
-            \\
-            \\This command name is reserved but not currently supported.
             \\
         ) catch {},
         .exec => writer.writeAll(
