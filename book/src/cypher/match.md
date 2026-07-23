@@ -29,7 +29,7 @@ equality patterns use it automatically, including parameterized values:
 MATCH (p:Person {email: $email}) RETURN p
 ```
 
-Create the index through the C, Python, or TypeScript database API before
+Create the index through the C, Python, TypeScript, or Go database API before
 running the query. Equality predicates in the immediately following `WHERE`
 also use an available index:
 

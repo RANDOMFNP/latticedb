@@ -173,6 +173,40 @@ func (db *DB) CacheStats() (QueryCacheStats, error) {
 	}, nil
 }
 
+// CreateNodePropertyIndex creates an explicit equality index for a node
+// label/property pair and indexes existing matching nodes.
+func (db *DB) CreateNodePropertyIndex(label, property string) error {
+	if db == nil || db.raw == nil {
+		return ErrDatabaseClosed
+	}
+	return wrapError(db.raw.CreateNodePropertyIndex(label, property))
+}
+
+// DropNodePropertyIndex removes an explicit node property index.
+func (db *DB) DropNodePropertyIndex(label, property string) error {
+	if db == nil || db.raw == nil {
+		return ErrDatabaseClosed
+	}
+	return wrapError(db.raw.DropNodePropertyIndex(label, property))
+}
+
+// CreateEdgePropertyIndex creates an explicit equality index for an edge
+// type/property pair and indexes existing matching edges.
+func (db *DB) CreateEdgePropertyIndex(edgeType, property string) error {
+	if db == nil || db.raw == nil {
+		return ErrDatabaseClosed
+	}
+	return wrapError(db.raw.CreateEdgePropertyIndex(edgeType, property))
+}
+
+// DropEdgePropertyIndex removes an explicit edge property index.
+func (db *DB) DropEdgePropertyIndex(edgeType, property string) error {
+	if db == nil || db.raw == nil {
+		return ErrDatabaseClosed
+	}
+	return wrapError(db.raw.DropEdgePropertyIndex(edgeType, property))
+}
+
 // GetNodesByLabel returns every node id that currently carries label.
 // An unknown label is not an error and yields an empty slice.
 func (db *DB) GetNodesByLabel(label string) ([]NodeID, error) {

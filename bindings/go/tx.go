@@ -138,6 +138,28 @@ func (tx *Tx) GetProperty(nodeID NodeID, key string) (Value, bool, error) {
 	return value, ok, wrapError(err)
 }
 
+// FindNodesByLabelProperty returns node IDs from a required explicit equality
+// index. The call returns ErrorUnsupported when the index does not exist.
+func (tx *Tx) FindNodesByLabelProperty(
+	label, property string,
+	value Value,
+	limit uint,
+) ([]NodeID, error) {
+	if err := tx.ensureActive(); err != nil {
+		return nil, err
+	}
+
+	ids, err := tx.raw.FindNodesByLabelProperty(label, property, value, limit)
+	if err != nil {
+		return nil, wrapError(err)
+	}
+	out := make([]NodeID, len(ids))
+	for i, id := range ids {
+		out[i] = NodeID(id)
+	}
+	return out, nil
+}
+
 func (tx *Tx) CreateEdge(sourceID, targetID NodeID, edgeType string, opts CreateEdgeOptions) (Edge, error) {
 	if err := tx.ensureWritable(); err != nil {
 		return Edge{}, err
@@ -190,6 +212,28 @@ func (tx *Tx) RemoveEdgeProperty(edgeID EdgeID, key string) error {
 		return err
 	}
 	return wrapError(tx.raw.RemoveEdgeProperty(uint64(edgeID), key))
+}
+
+// FindEdgesByTypeProperty returns edge IDs from a required explicit equality
+// index. The call returns ErrorUnsupported when the index does not exist.
+func (tx *Tx) FindEdgesByTypeProperty(
+	edgeType, property string,
+	value Value,
+	limit uint,
+) ([]EdgeID, error) {
+	if err := tx.ensureActive(); err != nil {
+		return nil, err
+	}
+
+	ids, err := tx.raw.FindEdgesByTypeProperty(edgeType, property, value, limit)
+	if err != nil {
+		return nil, wrapError(err)
+	}
+	out := make([]EdgeID, len(ids))
+	for i, id := range ids {
+		out[i] = EdgeID(id)
+	}
+	return out, nil
 }
 
 func (tx *Tx) GetOutgoingEdges(nodeID NodeID) ([]Edge, error) {

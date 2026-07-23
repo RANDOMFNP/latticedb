@@ -241,6 +241,70 @@ func (db *DB) CacheStats() (QueryCacheStats, error) {
 	}, nil
 }
 
+func (db *DB) CreateNodePropertyIndex(label, property string) error {
+	if db == nil || db.ptr == nil {
+		return &Error{Code: ErrorInvalidArg, Message: "database is not open"}
+	}
+	cLabel := C.CString(label)
+	defer C.free(unsafe.Pointer(cLabel))
+	cProperty := C.CString(property)
+	defer C.free(unsafe.Pointer(cProperty))
+
+	return errorFromCode(ErrorCode(C.lattice_node_property_index_create(
+		db.ptr,
+		cLabel,
+		cProperty,
+	)))
+}
+
+func (db *DB) DropNodePropertyIndex(label, property string) error {
+	if db == nil || db.ptr == nil {
+		return &Error{Code: ErrorInvalidArg, Message: "database is not open"}
+	}
+	cLabel := C.CString(label)
+	defer C.free(unsafe.Pointer(cLabel))
+	cProperty := C.CString(property)
+	defer C.free(unsafe.Pointer(cProperty))
+
+	return errorFromCode(ErrorCode(C.lattice_node_property_index_drop(
+		db.ptr,
+		cLabel,
+		cProperty,
+	)))
+}
+
+func (db *DB) CreateEdgePropertyIndex(edgeType, property string) error {
+	if db == nil || db.ptr == nil {
+		return &Error{Code: ErrorInvalidArg, Message: "database is not open"}
+	}
+	cType := C.CString(edgeType)
+	defer C.free(unsafe.Pointer(cType))
+	cProperty := C.CString(property)
+	defer C.free(unsafe.Pointer(cProperty))
+
+	return errorFromCode(ErrorCode(C.lattice_edge_property_index_create(
+		db.ptr,
+		cType,
+		cProperty,
+	)))
+}
+
+func (db *DB) DropEdgePropertyIndex(edgeType, property string) error {
+	if db == nil || db.ptr == nil {
+		return &Error{Code: ErrorInvalidArg, Message: "database is not open"}
+	}
+	cType := C.CString(edgeType)
+	defer C.free(unsafe.Pointer(cType))
+	cProperty := C.CString(property)
+	defer C.free(unsafe.Pointer(cProperty))
+
+	return errorFromCode(ErrorCode(C.lattice_edge_property_index_drop(
+		db.ptr,
+		cType,
+		cProperty,
+	)))
+}
+
 func (tx *Tx) Commit() error {
 	if tx == nil || tx.ptr == nil {
 		return nil
@@ -518,6 +582,47 @@ func (tx *Tx) GetNodeProperty(nodeID uint64, key string) (any, bool, error) {
 	return value, true, nil
 }
 
+func (tx *Tx) FindNodesByLabelProperty(
+	label, property string,
+	value any,
+	limit uint,
+) ([]uint64, error) {
+	cLabel := C.CString(label)
+	defer C.free(unsafe.Pointer(cLabel))
+	cProperty := C.CString(property)
+	defer C.free(unsafe.Pointer(cProperty))
+
+	cValue, cleanup, err := encodeValue(value)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	var idsPtr *C.lattice_node_id
+	var count C.size_t
+	if err := errorFromCode(ErrorCode(C.lattice_nodes_find_by_label_property(
+		tx.ptr,
+		cLabel,
+		cProperty,
+		cValue,
+		C.size_t(limit),
+		&idsPtr,
+		&count,
+	))); err != nil {
+		return nil, err
+	}
+	if count == 0 || idsPtr == nil {
+		return []uint64{}, nil
+	}
+	defer C.lattice_free_node_ids(idsPtr, count)
+
+	n := int(count)
+	src := unsafe.Slice((*uint64)(unsafe.Pointer(idsPtr)), n)
+	out := make([]uint64, n)
+	copy(out, src)
+	return out, nil
+}
+
 func (tx *Tx) CreateEdge(sourceID, targetID uint64, edgeType string) (uint64, error) {
 	cType := C.CString(edgeType)
 	defer C.free(unsafe.Pointer(cType))
@@ -596,6 +701,47 @@ func (tx *Tx) RemoveEdgeProperty(edgeID uint64, key string) error {
 		C.lattice_edge_id(edgeID),
 		cKey,
 	)))
+}
+
+func (tx *Tx) FindEdgesByTypeProperty(
+	edgeType, property string,
+	value any,
+	limit uint,
+) ([]uint64, error) {
+	cType := C.CString(edgeType)
+	defer C.free(unsafe.Pointer(cType))
+	cProperty := C.CString(property)
+	defer C.free(unsafe.Pointer(cProperty))
+
+	cValue, cleanup, err := encodeValue(value)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	var idsPtr *C.lattice_edge_id
+	var count C.size_t
+	if err := errorFromCode(ErrorCode(C.lattice_edges_find_by_type_property(
+		tx.ptr,
+		cType,
+		cProperty,
+		cValue,
+		C.size_t(limit),
+		&idsPtr,
+		&count,
+	))); err != nil {
+		return nil, err
+	}
+	if count == 0 || idsPtr == nil {
+		return []uint64{}, nil
+	}
+	defer C.lattice_free_edge_ids(idsPtr, count)
+
+	n := int(count)
+	src := unsafe.Slice((*uint64)(unsafe.Pointer(idsPtr)), n)
+	out := make([]uint64, n)
+	copy(out, src)
+	return out, nil
 }
 
 func (tx *Tx) GetOutgoingEdges(nodeID uint64) ([]EdgeRecord, error) {

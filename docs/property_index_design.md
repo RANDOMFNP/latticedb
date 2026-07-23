@@ -21,9 +21,9 @@ lattice_edge_property_index_create(db, "OWNS", "serial_number");
 ```
 
 Python exposes `create_node_property_index()` and
-`create_edge_property_index()` on `Database`; TypeScript uses the equivalent
-camel-case methods. Matching drop methods remove the schema definition and its
-entries.
+`create_edge_property_index()` on `Database`; TypeScript and Go use the
+equivalent camel-case methods. Matching drop methods remove the schema
+definition and its entries.
 
 The storage layer maintains a durable definition catalog plus separate node and
 edge B+Trees. Entry keys encode the scoped label/type ID, property key ID, a
@@ -50,8 +50,8 @@ lattice_nodes_find_by_label_property(
 
 `lattice_edges_find_by_type_property()` provides the edge equivalent. Python
 transaction methods are `find_nodes_by_label_property()` and
-`find_edges_by_type_property()`; TypeScript uses camel-case names. Each accepts
-a positive result limit.
+`find_edges_by_type_property()`; TypeScript and Go use camel-case names. Each
+accepts a positive result limit.
 
 The lookup fails with `LATTICE_ERROR_UNSUPPORTED` (or the binding's corresponding
 exception) when the required index does not exist. It never silently scans.

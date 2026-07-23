@@ -245,6 +245,151 @@ func TestEdgePropertiesAndQueryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestExplicitPropertyIndexes(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "property-indexes.db")
+
+	db, err := Open(dbPath, OpenOptions{Create: true})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Fatalf("close db: %v", closeErr)
+		}
+	}()
+
+	var aliceID NodeID
+	var bobID NodeID
+	var edgeID EdgeID
+	err = db.Update(func(tx *Tx) error {
+		alice, err := tx.CreateNode(CreateNodeOptions{
+			Labels:     []string{"Person"},
+			Properties: map[string]Value{"email": "alice@example.com"},
+		})
+		if err != nil {
+			return err
+		}
+		bob, err := tx.CreateNode(CreateNodeOptions{
+			Labels:     []string{"Person"},
+			Properties: map[string]Value{"email": "bob@example.com"},
+		})
+		if err != nil {
+			return err
+		}
+		edge, err := tx.CreateEdge(alice.ID, bob.ID, "KNOWS", CreateEdgeOptions{
+			Properties: map[string]Value{"since": int64(2024)},
+		})
+		if err != nil {
+			return err
+		}
+		aliceID = alice.ID
+		bobID = bob.ID
+		edgeID = edge.ID
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed graph: %v", err)
+	}
+
+	readTx, err := db.BeginRead()
+	if err != nil {
+		t.Fatalf("begin read before index creation: %v", err)
+	}
+	_, err = readTx.FindNodesByLabelProperty(
+		"Person",
+		"email",
+		"alice@example.com",
+		100,
+	)
+	var latticeErr *Error
+	if !errors.As(err, &latticeErr) || latticeErr.Code != ErrorUnsupported {
+		t.Fatalf("lookup without index = %v, want ErrorUnsupported", err)
+	}
+	if err := readTx.Rollback(); err != nil {
+		t.Fatalf("rollback pre-index read: %v", err)
+	}
+
+	if err := db.CreateNodePropertyIndex("Person", "email"); err != nil {
+		t.Fatalf("create node property index: %v", err)
+	}
+	if err := db.CreateEdgePropertyIndex("KNOWS", "since"); err != nil {
+		t.Fatalf("create edge property index: %v", err)
+	}
+
+	err = db.View(func(tx *Tx) error {
+		nodeIDs, err := tx.FindNodesByLabelProperty(
+			"Person",
+			"email",
+			"alice@example.com",
+			100,
+		)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(nodeIDs, []NodeID{aliceID}) {
+			t.Fatalf("node property lookup = %#v, want Alice", nodeIDs)
+		}
+
+		edgeIDs, err := tx.FindEdgesByTypeProperty("KNOWS", "since", int64(2024), 100)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(edgeIDs, []EdgeID{edgeID}) {
+			t.Fatalf("edge property lookup = %#v, want edge %d", edgeIDs, edgeID)
+		}
+
+		_, err = tx.FindNodesByLabelProperty("Person", "email", "alice@example.com", 0)
+		if !errors.As(err, &latticeErr) || latticeErr.Code != ErrorInvalidArg {
+			t.Fatalf("zero-limit lookup = %v, want ErrorInvalidArg", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read property indexes: %v", err)
+	}
+
+	err = db.Update(func(tx *Tx) error {
+		if err := tx.SetProperty(bobID, "email", "alice@example.com"); err != nil {
+			return err
+		}
+		nodeIDs, err := tx.FindNodesByLabelProperty(
+			"Person",
+			"email",
+			"alice@example.com",
+			100,
+		)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(nodeIDs, []NodeID{aliceID, bobID}) {
+			t.Fatalf("transactional node property lookup = %#v, want Alice and Bob", nodeIDs)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("update indexed property: %v", err)
+	}
+
+	if err := db.DropNodePropertyIndex("Person", "email"); err != nil {
+		t.Fatalf("drop node property index: %v", err)
+	}
+	if err := db.DropEdgePropertyIndex("KNOWS", "since"); err != nil {
+		t.Fatalf("drop edge property index: %v", err)
+	}
+
+	readTx, err = db.BeginRead()
+	if err != nil {
+		t.Fatalf("begin read after index drop: %v", err)
+	}
+	_, err = readTx.FindEdgesByTypeProperty("KNOWS", "since", int64(2024), 100)
+	if !errors.As(err, &latticeErr) || latticeErr.Code != ErrorUnsupported {
+		t.Fatalf("lookup after index drop = %v, want ErrorUnsupported", err)
+	}
+	if err := readTx.Rollback(); err != nil {
+		t.Fatalf("rollback post-drop read: %v", err)
+	}
+}
+
 func TestTypedEdgeTraversalWithLimit(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "typed-edges.db")
 

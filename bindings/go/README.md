@@ -11,6 +11,7 @@ This is a cgo-backed client built on the stable C ABI. The current API supports:
 - database open/close
 - read/write transactions
 - nodes, edges, and nested property values
+- explicit node and edge property indexes with equality lookup
 - Cypher queries with nested parameters and materialized results
 - vector storage and search
 - full-text search and fuzzy search
@@ -165,6 +166,11 @@ For a larger end-to-end example, see [examples/go](../../examples/go).
   - `[]any`
   - `map[string]any`
 - Query results are materialized into `[]map[string]Value`.
+- Create explicit equality indexes with `DB.CreateNodePropertyIndex` or
+  `DB.CreateEdgePropertyIndex`, then query them from an active transaction with
+  `Tx.FindNodesByLabelProperty` or `Tx.FindEdgesByTypeProperty`. Lookup limits
+  must be positive, and a missing index returns `ErrorUnsupported` rather than
+  falling back to a scan.
 - Durable streams use explicit cursors: `DB.ReadStream`, `DB.GetStreamOffset`, `DB.Changes`, `Tx.PublishStream`, `Tx.SetStreamOffset`, and `Tx.TrimStream`.
 
 ## Embeddings
