@@ -633,9 +633,12 @@ Before: Filter(a.x > 10) → Expand → LabelScan
 After:  Expand → Filter(a.x > 10) → LabelScan
 ```
 
-### Index Selection
+### Cost-Based Index Selection
 
-Choose between AllNodesScan vs LabelScan vs property index based on selectivity.
+The planner already selects explicit property indexes for eligible inline and
+immediately following `WHERE` equalities. A future cost model could choose
+between available label and property indexes using cardinality and selectivity
+statistics instead of the current first-eligible heuristic.
 
 ### Join Ordering
 
