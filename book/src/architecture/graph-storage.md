@@ -397,13 +397,11 @@ Where n = total items in the respective B+Tree.
 The public database API is not yet fully transaction-isolated end-to-end. The transaction manager contains snapshot-oriented MVCC machinery above this layer, but this chapter only describes the underlying graph-storage structures.
 
 1. **Property updates rewrite records**: No in-place partial property update at the storage-record level
-2. **Partial B+Tree rebalancing**: Deletes merge adjacent leaves under the same parent when they fit, but do not yet redistribute entries or merge internal nodes across parent boundaries
 
 ## Future Enhancements
 
 1. **Edge type index**: Fast lookup by edge type across all nodes
 2. **Cross-node edge type scans**: Dedicated indexes for type-wide traversals
-3. **Complete B+Tree underflow handling**: Redistribute leaf entries and merge internal nodes across parent boundaries
 
 ## Summary
 

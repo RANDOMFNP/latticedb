@@ -396,9 +396,12 @@ with only that leaf remaining is collapsed. Space within a surviving leaf is
 reusable immediately by later inserts or updates, while reclaimed pages are
 reused by any later database allocation.
 
-The implementation does not yet redistribute entries between leaves or merge
-internal nodes across parent boundaries. Those omissions affect tree density,
-not lookup or scan correctness.
+When a sparse leaf cannot merge because its sibling is too full, entries are
+redistributed by stored byte size and the parent separator is updated. Removing
+a leaf separator can in turn rebalance internal pages: compatible internal
+siblings absorb their parent separator and merge, while oversized pairs
+redistribute keys and promote a new separator. Rebalancing propagates to the
+root, collapsing every now-redundant tree level.
 
 ### Page-Based, With Explicit Overflow
 
