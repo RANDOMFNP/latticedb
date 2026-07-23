@@ -59,6 +59,12 @@ Creating an index scans existing matching records, and subsequent direct and
 transactional mutations maintain it. Transactional lookups include staged
 changes and preserve reader snapshot visibility.
 
+The Cypher planner uses an available index for independent inline equality
+patterns, including parameterized forms such as
+`MATCH (n:Person {email: $email}) RETURN n`. It retains the ordinary property
+filter above the index scan as a semantic guard. General `WHERE` predicate
+selection remains a separate planner optimization.
+
 ## Scan-Backed Convenience APIs
 
 Any future scan-backed convenience lookup must remain explicitly named as a

@@ -2546,6 +2546,21 @@ test "database: explicit property indexes track direct and transactional mutatio
         defer allocator.free(edge_ids);
         try std.testing.expectEqualSlices(u64, &.{edge_id}, edge_ids);
 
+        // Prove the planner selects the property index for an inline parameter
+        // predicate: temporarily hide Alice from the ordinary label index.
+        const person_id = try db.symbol_table.lookup("Person");
+        try db.label_index.remove(person_id, alice);
+        var params = std.StringHashMap(PropertyValue).init(allocator);
+        defer params.deinit();
+        try params.put("email", .{ .string_val = "alice@example.com" });
+        var indexed_query = try db.queryWithParams(
+            "MATCH (n:Person {email: $email}) RETURN n",
+            &params,
+        );
+        defer indexed_query.deinit();
+        try std.testing.expectEqual(@as(usize, 1), indexed_query.rowCount());
+        try db.label_index.add(person_id, alice);
+
         try db.removeEdgePropertyById(null, edge_id, "since");
         const removed = try db.findEdgesByTypeProperty(null, "KNOWS", "since", .{ .int_val = 2024 }, 10);
         defer allocator.free(removed);

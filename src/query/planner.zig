@@ -278,19 +278,48 @@ pub const QueryPlanner = struct {
                         _ = self.storage.label_index orelse return PlannerError.MissingStorage;
                         const symbol_table = self.storage.symbol_table orelse return PlannerError.MissingStorage;
 
-                        const label_id = symbol_table.lookup(node_pattern.labels[0]) catch |err| switch (err) {
+                        const database = self.storage.database orelse return PlannerError.MissingStorage;
+                        var scan_label_index: usize = 0;
+                        var indexed_property: ?ast.PropertyEntry = null;
+                        if (node_pattern.properties) |properties| {
+                            search: for (node_pattern.labels, 0..) |label_name, label_idx| {
+                                for (properties) |property| {
+                                    if (!isIndependentExpression(property.value)) continue;
+                                    if (database.hasNodePropertyIndex(label_name, property.key) catch false) {
+                                        scan_label_index = label_idx;
+                                        indexed_property = property;
+                                        break :search;
+                                    }
+                                }
+                            }
+                        }
+
+                        const scan_label_name = node_pattern.labels[scan_label_index];
+                        const label_id = symbol_table.lookup(scan_label_name) catch |err| switch (err) {
                             symbols.SymbolError.NotFound => symbols.NULL_SYMBOL,
                             else => return PlannerError.InternalError,
                         };
 
-                        const database = self.storage.database orelse return PlannerError.MissingStorage;
-                        const label_scan = scan_ops.LabelScan.init(self.allocator, slot, label_id, database) catch {
-                            return PlannerError.OutOfMemory;
+                        var new_op: Operator = if (indexed_property) |property| blk: {
+                            const property_scan = scan_ops.PropertyIndexScan.init(
+                                self.allocator,
+                                slot,
+                                scan_label_name,
+                                property.key,
+                                property.value,
+                                database,
+                            ) catch return PlannerError.OutOfMemory;
+                            break :blk property_scan.operator();
+                        } else blk: {
+                            const label_scan = scan_ops.LabelScan.init(self.allocator, slot, label_id, database) catch {
+                                return PlannerError.OutOfMemory;
+                            };
+                            break :blk label_scan.operator();
                         };
-                        var new_op: Operator = label_scan.operator();
 
                         // Chain filters for additional labels (AND semantics)
-                        for (node_pattern.labels[1..]) |label_name| {
+                        for (node_pattern.labels, 0..) |label_name, label_idx| {
+                            if (label_idx == scan_label_index) continue;
                             const extra_id = symbol_table.lookup(label_name) catch |err| switch (err) {
                                 symbols.SymbolError.NotFound => symbols.NULL_SYMBOL,
                                 else => return PlannerError.InternalError,
@@ -486,6 +515,25 @@ pub const QueryPlanner = struct {
         }
 
         return op orelse PlannerError.InvalidQuery;
+    }
+
+    fn isIndependentExpression(expr: *const ast.Expression) bool {
+        return switch (expr.*) {
+            .literal, .parameter => true,
+            .list => |list| blk: {
+                for (list.elements) |element| {
+                    if (!isIndependentExpression(element)) break :blk false;
+                }
+                break :blk true;
+            },
+            .map => |map| blk: {
+                for (map.entries) |entry| {
+                    if (!isIndependentExpression(entry.value)) break :blk false;
+                }
+                break :blk true;
+            },
+            else => false,
+        };
     }
 
     /// Plan a WHERE clause

@@ -23,6 +23,9 @@ const Database = database_mod.Database;
 const symbols = @import("../../graph/symbols.zig");
 const SymbolId = symbols.SymbolId;
 
+const ast = @import("../ast.zig");
+const expression = @import("../expression.zig");
+
 // ============================================================================
 // AllNodesScan Operator
 // ============================================================================
@@ -209,6 +212,102 @@ pub const LabelScan = struct {
 };
 
 // ============================================================================
+// PropertyIndexScan Operator
+// ============================================================================
+
+/// Scans an explicit label/property equality index. The value expression is
+/// evaluated once at open time, allowing both literals and query parameters.
+pub const PropertyIndexScan = struct {
+    output_slot: u8,
+    label: []const u8,
+    property: []const u8,
+    value_expression: *const ast.Expression,
+    database: *Database,
+    node_ids: ?[]NodeId,
+    current_index: usize,
+    current_row: ?*Row,
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        output_slot: u8,
+        label: []const u8,
+        property: []const u8,
+        value_expression: *const ast.Expression,
+        database: *Database,
+    ) !*Self {
+        const self = try allocator.create(Self);
+        self.* = .{
+            .output_slot = output_slot,
+            .label = label,
+            .property = property,
+            .value_expression = value_expression,
+            .database = database,
+            .node_ids = null,
+            .current_index = 0,
+            .current_row = null,
+        };
+        return self;
+    }
+
+    pub fn operator(self: *Self) Operator {
+        return .{ .vtable = &vtable, .ptr = self };
+    }
+
+    const vtable = Operator.VTable{
+        .open = open,
+        .next = next,
+        .close = close,
+        .deinit = deinit,
+    };
+
+    fn open(ptr: *anyopaque, ctx: *ExecutionContext) OperatorError!void {
+        const self: *Self = @ptrCast(@alignCast(ptr));
+        self.current_row = ctx.allocRow() catch return OperatorError.OutOfMemory;
+
+        const temporary_allocator = ctx.row_arena.allocator();
+        var evaluator = expression.ExpressionEvaluator.init(temporary_allocator);
+        const empty_row = Row.init();
+        const evaluated = evaluator.evaluate(self.value_expression, &empty_row, ctx) catch return OperatorError.EvaluationError;
+        const value = evaluated.toPropertyValue(temporary_allocator);
+        self.node_ids = self.database.findNodesByLabelProperty(
+            ctx.txn,
+            self.label,
+            self.property,
+            value,
+            std.math.maxInt(usize),
+        ) catch return OperatorError.StorageError;
+        self.current_index = 0;
+    }
+
+    fn next(ptr: *anyopaque, _: *ExecutionContext) OperatorError!?*Row {
+        const self: *Self = @ptrCast(@alignCast(ptr));
+        const node_ids = self.node_ids orelse return OperatorError.NotInitialized;
+        const row = self.current_row orelse return OperatorError.NotInitialized;
+        if (self.current_index >= node_ids.len) return null;
+
+        const node_id = node_ids[self.current_index];
+        self.current_index += 1;
+        row.clear();
+        row.setSlot(self.output_slot, .{ .node_ref = node_id });
+        return row;
+    }
+
+    fn close(ptr: *anyopaque, _: *ExecutionContext) void {
+        const self: *Self = @ptrCast(@alignCast(ptr));
+        if (self.node_ids) |node_ids| {
+            self.database.allocator.free(node_ids);
+            self.node_ids = null;
+        }
+    }
+
+    fn deinit(ptr: *anyopaque, allocator: Allocator) void {
+        allocator.destroy(@as(*Self, @ptrCast(@alignCast(ptr))));
+    }
+};
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -228,4 +327,8 @@ test "LabelScan basic structure" {
     try std.testing.expect(@TypeOf(vtable.next) != void);
     try std.testing.expect(@TypeOf(vtable.close) != void);
     try std.testing.expect(@TypeOf(vtable.deinit) != void);
+}
+
+test "PropertyIndexScan basic structure" {
+    try std.testing.expect(@TypeOf(PropertyIndexScan.vtable.open) != void);
 }

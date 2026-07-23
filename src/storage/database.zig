@@ -2594,6 +2594,15 @@ pub const Database = struct {
         try self.createPropertyIndex(.node, label, property);
     }
 
+    pub fn hasNodePropertyIndex(self: *Self, label: []const u8, property: []const u8) DatabaseError!bool {
+        const definition = self.propertyIndexDefinition(.node, label, property, false) catch |err| switch (err) {
+            DatabaseError.MissingIndex => return false,
+            else => return err,
+        };
+        var index = &(self.property_index orelse return false);
+        return index.hasDefinition(definition) catch |err| return mapPropertyIndexError(err);
+    }
+
     pub fn dropNodePropertyIndex(self: *Self, label: []const u8, property: []const u8) DatabaseError!void {
         try self.dropPropertyIndex(.node, label, property);
     }
