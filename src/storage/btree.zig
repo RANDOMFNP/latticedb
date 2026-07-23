@@ -80,9 +80,6 @@ const OVERFLOW_PAGE_MAGIC: u32 = 0x31564f42; // "BOV1"
 const OVERFLOW_DESCRIPTOR_FIXED_SIZE: usize = 28;
 const OVERFLOW_PAGE_HEADER_SIZE: usize = @sizeOf(PageHeader) + 12;
 
-/// Minimum keys before considering merge (not implemented yet)
-const MIN_KEYS = 2;
-
 /// Key-value entry type returned by leaf operations
 pub const Entry = struct {
     key: []const u8,
@@ -1535,8 +1532,11 @@ pub const BTree = struct {
     /// Delete a key from the tree
     /// Returns KeyNotFound if the key doesn't exist
     pub fn delete(self: *Self, key: []const u8) BTreeError!void {
-        // Find the leaf containing the key
-        const leaf_page = try self.findLeafForKey(key);
+        // Find the leaf containing the key and remember its immediate parent.
+        // The parent lets us opportunistically merge adjacent leaves after the
+        // delete without storing parent pointers in every page.
+        const location = try self.findLeafWithParentForKey(key);
+        const leaf_page = location.leaf;
 
         // Fetch the leaf with exclusive latch
         const frame = self.bp.fetchPage(leaf_page, .exclusive) catch return BTreeError.BufferPoolFull;
@@ -1557,9 +1557,190 @@ pub const BTree = struct {
         self.bp.unpinPage(frame, true);
         frame_pinned = false;
 
-        // Note: We don't handle underflow (merge/redistribute) for simplicity.
-        // Underflowed pages still work correctly, they just have wasted space.
-        // A background compaction process could reclaim this space later.
+        // A failed merge is only a missed space-reclamation opportunity: the
+        // key has already been removed and the tree remains valid. Keep delete
+        // semantics deterministic even under temporary memory or cache pressure.
+        self.tryMergeLeaf(leaf_page, location.parent) catch {};
+    }
+
+    const LeafLocation = struct {
+        leaf: PageId,
+        parent: ?PageId,
+    };
+
+    fn findLeafWithParentForKey(self: *Self, key: []const u8) BTreeError!LeafLocation {
+        var page_id = self.root_page;
+        var parent: ?PageId = null;
+
+        while (true) {
+            const frame = self.bp.fetchPage(page_id, .shared) catch return BTreeError.BufferPoolFull;
+            defer self.bp.unpinPage(frame, false);
+
+            const header: *const PageHeader = @ptrCast(@alignCast(frame.data.ptr));
+            if (header.page_type == .btree_leaf) {
+                return .{ .leaf = page_id, .parent = parent };
+            }
+            if (header.page_type != .btree_internal) return BTreeError.InvalidPage;
+
+            parent = page_id;
+            page_id = self.findChild(frame.data, key);
+        }
+    }
+
+    fn internalChildAt(buf: []const u8, index: u16) PageId {
+        const num_keys = InternalNode.getNumKeys(buf);
+        return if (index < num_keys)
+            InternalNode.getChild(buf, index)
+        else
+            InternalNode.getRightChild(buf);
+    }
+
+    fn storedLeafSpace(buf: []const u8) usize {
+        var total: usize = 0;
+        const count = LeafNode.getNumEntries(buf);
+        for (0..count) |i| {
+            const entry = LeafNode.getStoredEntry(buf, @intCast(i));
+            total += storedLeafEntrySpace(entry.key, entry.value) orelse return std.math.maxInt(usize);
+        }
+        return total;
+    }
+
+    /// Merge a leaf with an adjacent sibling when both payloads fit on one
+    /// page. This is deliberately opportunistic rather than occupancy based:
+    /// every successful merge returns a page to the database freelist, while a
+    /// pair that cannot fit remains a valid (possibly uneven) pair of leaves.
+    fn tryMergeLeaf(self: *Self, leaf_page: PageId, parent_page: ?PageId) BTreeError!void {
+        const parent_id = parent_page orelse return;
+        const parent_frame = self.bp.fetchPage(parent_id, .exclusive) catch return BTreeError.BufferPoolFull;
+        var parent_pinned = true;
+        var parent_dirty = false;
+        defer if (parent_pinned) self.bp.unpinPage(parent_frame, parent_dirty);
+
+        const parent_header: *const PageHeader = @ptrCast(@alignCast(parent_frame.data.ptr));
+        if (parent_header.page_type != .btree_internal) return BTreeError.InvalidPage;
+
+        const num_keys = InternalNode.getNumKeys(parent_frame.data);
+        if (num_keys == 0) return;
+
+        var child_index: ?u16 = null;
+        var i: u16 = 0;
+        while (i <= num_keys) : (i += 1) {
+            if (internalChildAt(parent_frame.data, i) == leaf_page) {
+                child_index = i;
+                break;
+            }
+        }
+        const current_index = child_index orelse return BTreeError.InvalidPage;
+
+        // Prefer the right sibling. If the leaf is already rightmost, merge it
+        // into its left sibling instead. In both cases the surviving page is
+        // `left_id`, and separator_index names the parent key to remove.
+        const separator_index: u16 = if (current_index < num_keys) current_index else current_index - 1;
+        const left_id = internalChildAt(parent_frame.data, separator_index);
+        const right_id = internalChildAt(parent_frame.data, separator_index + 1);
+
+        const left_frame = self.bp.fetchPage(left_id, .exclusive) catch return BTreeError.BufferPoolFull;
+        var left_pinned = true;
+        var left_dirty = false;
+        defer if (left_pinned) self.bp.unpinPage(left_frame, left_dirty);
+
+        const right_frame = self.bp.fetchPage(right_id, .exclusive) catch return BTreeError.BufferPoolFull;
+        var right_pinned = true;
+        defer if (right_pinned) self.bp.unpinPage(right_frame, false);
+
+        const left_header: *const PageHeader = @ptrCast(@alignCast(left_frame.data.ptr));
+        const right_header: *const PageHeader = @ptrCast(@alignCast(right_frame.data.ptr));
+        if (left_header.page_type != .btree_leaf or right_header.page_type != .btree_leaf) return;
+
+        const combined_space = storedLeafSpace(left_frame.data) + storedLeafSpace(right_frame.data);
+        if (combined_space > leafPagePayloadCapacity(self.page_size)) return;
+
+        // Copy parent keys before rewriting its page. Child page IDs are plain
+        // values, while key slices otherwise point into the page being reset.
+        const new_key_count = num_keys - 1;
+        var key_bytes_len: usize = 0;
+        for (0..num_keys) |key_index| {
+            if (key_index == separator_index) continue;
+            key_bytes_len += InternalNode.getKey(parent_frame.data, @intCast(key_index)).len;
+        }
+        const key_bytes = self.allocator.alloc(u8, key_bytes_len) catch return BTreeError.OutOfMemory;
+        defer self.allocator.free(key_bytes);
+        const keys = self.allocator.alloc([]const u8, new_key_count) catch return BTreeError.OutOfMemory;
+        defer self.allocator.free(keys);
+        const children = self.allocator.alloc(PageId, @as(usize, new_key_count) + 1) catch return BTreeError.OutOfMemory;
+        defer self.allocator.free(children);
+
+        var key_write: usize = 0;
+        var key_out: usize = 0;
+        for (0..num_keys) |key_index| {
+            if (key_index == separator_index) continue;
+            const source = InternalNode.getKey(parent_frame.data, @intCast(key_index));
+            const copy = key_bytes[key_write..][0..source.len];
+            @memcpy(copy, source);
+            keys[key_out] = copy;
+            key_write += source.len;
+            key_out += 1;
+        }
+
+        var child_out: usize = 0;
+        i = 0;
+        while (i <= num_keys) : (i += 1) {
+            if (i == separator_index + 1) continue;
+            children[child_out] = internalChildAt(parent_frame.data, i);
+            child_out += 1;
+        }
+
+        const next_id = LeafNode.getNextLeaf(right_frame.data);
+        var next_frame: ?*BufferFrame = null;
+        if (next_id != NULL_PAGE) {
+            next_frame = self.bp.fetchPage(next_id, .exclusive) catch return BTreeError.BufferPoolFull;
+        }
+        defer if (next_frame) |frame| self.bp.unpinPage(frame, false);
+
+        const left_count = LeafNode.getNumEntries(left_frame.data);
+        const right_count = LeafNode.getNumEntries(right_frame.data);
+        for (0..right_count) |right_index| {
+            const entry = LeafNode.getStoredEntry(right_frame.data, @intCast(right_index));
+            try self.insertLeafEntryStored(
+                left_frame.data,
+                left_count + @as(u16, @intCast(right_index)),
+                entry.key,
+                entry.value,
+                entry.overflow,
+            );
+        }
+        LeafNode.setNextLeaf(left_frame.data, next_id);
+        if (next_frame) |frame| {
+            LeafNode.setPrevLeaf(frame.data, left_id);
+            self.bp.unpinPage(frame, true);
+            next_frame = null;
+        }
+        left_dirty = true;
+
+        const parent_level = InternalNode.getLevel(parent_frame.data);
+        InternalNode.init(parent_frame.data, parent_level);
+        for (keys, 0..) |parent_key, key_index| {
+            self.insertInternalEntryDirect(parent_frame.data, @intCast(key_index), parent_key, children[key_index]);
+        }
+        InternalNode.setRightChild(parent_frame.data, children[new_key_count]);
+        parent_dirty = true;
+
+        const collapse_root = parent_id == self.root_page and new_key_count == 0;
+        if (collapse_root) self.root_page = left_id;
+
+        self.bp.unpinPage(right_frame, false);
+        right_pinned = false;
+        self.bp.unpinPage(left_frame, true);
+        left_pinned = false;
+        self.bp.unpinPage(parent_frame, true);
+        parent_pinned = false;
+
+        const freed_right = self.bp.fetchPage(right_id, .exclusive) catch return BTreeError.BufferPoolFull;
+        try self.markPageFreeInPlace(freed_right);
+        if (collapse_root) {
+            const freed_parent = self.bp.fetchPage(parent_id, .exclusive) catch return BTreeError.BufferPoolFull;
+            try self.markPageFreeInPlace(freed_parent);
+        }
     }
 
     /// Remove an entry from a leaf node and compact surviving entries.
@@ -2058,6 +2239,63 @@ test "btree leaf split" {
         try std.testing.expect(val != null);
         if (val) |owned| tree.freeValue(owned);
     }
+}
+
+test "btree delete merges leaves and returns pages to freelist" {
+    const allocator = std.testing.allocator;
+
+    const vfs = lattice.storage.vfs;
+    const page_manager = lattice.storage.page_manager;
+    var posix_vfs = vfs.PosixVfs.init(allocator);
+    const vfs_impl = posix_vfs.vfs();
+
+    const path = "/tmp/lattice_btree_test_delete_merge.db";
+    vfs_impl.delete(path) catch {};
+
+    var pm = try page_manager.PageManager.init(allocator, vfs_impl, path, .{ .create = true });
+    defer {
+        pm.deinit();
+        vfs_impl.delete(path) catch {};
+    }
+
+    var bp = try BufferPool.init(allocator, &pm, 65536);
+    defer bp.deinit();
+
+    var tree = try BTree.init(allocator, &bp);
+    const value = [_]u8{'v'} ** 96;
+
+    var key_buf: [32]u8 = undefined;
+    for (0..160) |i| {
+        const key = std.fmt.bufPrint(&key_buf, "key{d:05}", .{i}) catch unreachable;
+        try tree.insert(key, &value);
+    }
+
+    const page_count_before: u32 = @intCast((try pm.file.size()) / pm.getPageSize());
+    try std.testing.expect(page_count_before > 2);
+
+    for (0..150) |i| {
+        const key = std.fmt.bufPrint(&key_buf, "key{d:05}", .{i}) catch unreachable;
+        try tree.delete(key);
+    }
+
+    try std.testing.expect(pm.getHeader().freelist_page != NULL_PAGE);
+
+    var iter = try tree.range(null, null);
+    defer iter.deinit();
+    var remaining: usize = 0;
+    while (try iter.next()) |entry| {
+        const expected = std.fmt.bufPrint(&key_buf, "key{d:05}", .{150 + remaining}) catch unreachable;
+        try std.testing.expectEqualStrings(expected, entry.key);
+        try std.testing.expectEqualSlices(u8, &value, entry.value);
+        remaining += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 10), remaining);
+
+    // New allocations consume reclaimed pages before extending the file.
+    const reused_page = try pm.allocatePage();
+    try std.testing.expect(reused_page < page_count_before);
+    try std.testing.expectEqual(@as(u64, page_count_before) * pm.getPageSize(), try pm.file.size());
+    try pm.freePage(reused_page);
 }
 
 test "btree leaf split accounts for variable-sized entries" {

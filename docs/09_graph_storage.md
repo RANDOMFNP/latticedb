@@ -413,14 +413,13 @@ Where n = total items in the respective B+Tree.
 The public database API is not yet fully transaction-isolated end-to-end. The transaction manager contains snapshot-oriented MVCC machinery above this layer, but this chapter only describes the underlying graph-storage structures.
 
 1. **Property updates rewrite records**: No in-place partial property update at the storage-record level
-2. **No page merge/redistribution**: B+Tree deletes compact each leaf but do not merge underfull pages
+2. **Partial B+Tree rebalancing**: Deletes merge adjacent leaves under the same parent when they fit, but do not yet redistribute entries or merge internal nodes across parent boundaries
 
 ## Future Enhancements
 
-1. **Property indexes**: Secondary indexes on property values
-2. **Edge type index**: Fast lookup by edge type across all nodes
-3. **Cross-node edge type scans**: Dedicated indexes for type-wide traversals
-4. **B+Tree underflow handling**: Merge/redistribute pages after deletes
+1. **Edge type index**: Fast lookup by edge type across all nodes
+2. **Cross-node edge type scans**: Dedicated indexes for type-wide traversals
+3. **Complete B+Tree underflow handling**: Redistribute leaf entries and merge internal nodes across parent boundaries
 
 ## Summary
 
@@ -432,6 +431,9 @@ The public database API is not yet fully transaction-isolated end-to-end. The tr
 | Edge Store | (src, dir, type, tgt, edge_id) | Traversal keys |
 | Edge ID Index | edge_id | Stable edge identity and property payload |
 | Label Index | (label_id, node_id) | Label-based queries |
+| Property Index Catalog | (entity_kind, scope_id, property_id) | Durable explicit index definitions |
+| Node Property Index | (scope_id, property_id, value_digest, node_id) | Indexed node-property equality lookup |
+| Edge Property Index | (scope_id, property_id, value_digest, edge_id) | Indexed edge-property equality lookup |
 
 The graph storage layer transforms B+Trees into a full property graph database
 through careful key design, stable edge IDs, and a traversal/payload split for
