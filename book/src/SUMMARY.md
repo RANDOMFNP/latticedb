@@ -9,6 +9,14 @@
 - [Core Concepts](./getting-started/concepts.md)
 - [When to Use LatticeDB](./getting-started/when-to-use.md)
 
+# Comparisons
+
+- [Choosing an Embedded Graph Database](./comparisons/overview.md)
+- [LatticeDB vs SQLite](./comparisons/vs-sqlite.md)
+- [LatticeDB vs Kùzu and LadybugDB](./comparisons/vs-kuzu.md)
+- [LatticeDB vs Neo4j](./comparisons/vs-neo4j.md)
+- [LatticeDB vs Vector Databases](./comparisons/vs-vector-databases.md)
+
 # Guides
 
 - [Building a RAG System](./guides/rag-system.md)

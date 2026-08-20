@@ -35,8 +35,14 @@ LatticeDB at 1M achieves 0.83 ms mean with 100% recall@10 — faster than FAISS 
 |--------|-------------------|------|--------|
 | **LatticeDB** | **39 us** | Embedded | `zig build sqlite-benchmark` |
 | SQLite (recursive CTE) | 548 us | Embedded | `zig build sqlite-benchmark` |
-| Kuzu | 19 ms | Embedded | The Data Quarry |
+| Kuzu (archived Oct 2025) | 19 ms | Embedded | The Data Quarry |
 | Neo4j | 10 ms (1M nodes) | Server | Neo4j blog |
+
+> Numbers marked with a third-party source were measured on hardware and with
+> methodology we do not control, and are not directly comparable to the LatticeDB
+> figures. Only the SQLite comparison below is head to head. Kùzu was archived in
+> October 2025 following its creators' acquisition; see
+> [vs Kùzu and LadybugDB](../comparisons/vs-kuzu.md).
 
 ### LatticeDB vs SQLite
 

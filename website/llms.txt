@@ -19,6 +19,14 @@ sync — a database is one file on disk.
 - [Core Concepts](https://docs.latticedb.org/getting-started/concepts): nodes, edges, properties, labels, and indexes
 - [When to Use LatticeDB](https://docs.latticedb.org/getting-started/when-to-use): where it fits and where it does not
 
+## Comparisons
+
+- [Choosing an Embedded Graph Database](https://docs.latticedb.org/comparisons/overview): the landscape and how to pick
+- [LatticeDB vs SQLite](https://docs.latticedb.org/comparisons/vs-sqlite): head-to-head traversal and search benchmarks
+- [LatticeDB vs Kuzu and LadybugDB](https://docs.latticedb.org/comparisons/vs-kuzu): Kuzu was archived in October 2025; what replaced it
+- [LatticeDB vs Neo4j](https://docs.latticedb.org/comparisons/vs-neo4j): embedded versus server, and what you give up
+- [LatticeDB vs Vector Databases](https://docs.latticedb.org/comparisons/vs-vector-databases): Chroma, LanceDB, pgvector, and sqlite-vec for RAG
+
 ## Guides
 
 - [Building a RAG System](https://docs.latticedb.org/guides/rag-system): chunk, embed, and retrieve with graph context

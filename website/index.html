@@ -486,6 +486,28 @@ footer .footer-links {
   margin-bottom: 12px;
 }
 
+.note-inline { color: #999; font-size: 13px; }
+.compare-note {
+  margin-top: 20px;
+  color: #666;
+  font-size: 15px;
+  max-width: 62ch;
+}
+.compare-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+.compare-links a {
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 14px;
+  color: #1a1a1a;
+}
+.compare-links a:hover { border-color: #4a90d9; color: #4a90d9; text-decoration: none; }
+
 /* Responsive */
 @media (max-width: 768px) {
   .hero { padding: 48px 0 40px; }
@@ -608,10 +630,22 @@ footer .footer-links {
         <tbody>
           <tr class="highlight"><td>LatticeDB</td><td>39 &micro;s</td><td>Embedded</td></tr>
           <tr><td>SQLite (recursive CTE)</td><td>548 &micro;s</td><td>Embedded</td></tr>
-          <tr><td>Kuzu</td><td>19 ms</td><td>Embedded</td></tr>
+          <tr><td>Kuzu <span class="note-inline">(archived 2025)</span></td><td>19 ms</td><td>Embedded</td></tr>
           <tr><td>Neo4j</td><td>10 ms</td><td>Server</td></tr>
         </tbody>
       </table>
+    </div>
+
+    <p class="compare-note">
+      Only the SQLite row is measured head to head on the same machine; the rest are
+      published third-party figures. Full detail, and an honest account of what each
+      alternative does better, in the comparison guides:
+    </p>
+    <div class="compare-links">
+      <a href="https://docs.latticedb.org/comparisons/vs-sqlite">vs SQLite</a>
+      <a href="https://docs.latticedb.org/comparisons/vs-kuzu">vs K&ugrave;zu / LadybugDB</a>
+      <a href="https://docs.latticedb.org/comparisons/vs-neo4j">vs Neo4j</a>
+      <a href="https://docs.latticedb.org/comparisons/vs-vector-databases">vs vector databases</a>
     </div>
   </div>
 </section>
