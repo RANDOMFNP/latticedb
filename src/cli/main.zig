@@ -295,8 +295,8 @@ fn cmdInfo(
             try stdout.print("Nodes:        {d}\n", .{node_count});
             try stdout.print("Edges:        {d}\n", .{edge_count});
             try stdout.print("Format:       v{d}\n", .{lattice.core.types.FORMAT_VERSION});
-            try stdout.print("Vector:       {s}\n", .{if (db.config.enable_vector) "enabled" else "disabled"});
-            try stdout.print("FTS:          {s}\n", .{if (db.config.enable_fts) "enabled" else "disabled"});
+            try stdout.print("Vector:       {s}\n", .{if (db.hasPersistedVectorIndex()) "enabled" else "disabled"});
+            try stdout.print("FTS:          {s}\n", .{if (db.hasPersistedFtsIndex()) "enabled" else "disabled"});
         },
         .json => {
             try stdout.print("{{\"path\":\"{s}\",\"size_kb\":{d},\"nodes\":{d},\"edges\":{d},\"format_version\":{d},\"vector_enabled\":{},\"fts_enabled\":{}}}\n", .{
@@ -305,8 +305,8 @@ fn cmdInfo(
                 node_count,
                 edge_count,
                 lattice.core.types.FORMAT_VERSION,
-                db.config.enable_vector,
-                db.config.enable_fts,
+                db.hasPersistedVectorIndex(),
+                db.hasPersistedFtsIndex(),
             });
         },
         .csv => {
@@ -316,8 +316,8 @@ fn cmdInfo(
             try stdout.print("nodes,{d}\n", .{node_count});
             try stdout.print("edges,{d}\n", .{edge_count});
             try stdout.print("format_version,{d}\n", .{lattice.core.types.FORMAT_VERSION});
-            try stdout.print("vector_enabled,{}\n", .{db.config.enable_vector});
-            try stdout.print("fts_enabled,{}\n", .{db.config.enable_fts});
+            try stdout.print("vector_enabled,{}\n", .{db.hasPersistedVectorIndex()});
+            try stdout.print("fts_enabled,{}\n", .{db.hasPersistedFtsIndex()});
         },
     }
 }

@@ -2776,6 +2776,25 @@ pub const Database = struct {
     // ========================================================================
 
     /// Get the number of nodes in the database
+    /// Whether this database file was built with a vector index.
+    ///
+    /// This reads the file header rather than the handle's config, because a
+    /// handle opened without `enable_vector` still describes a file that has
+    /// one. Reporting the config would say "disabled" for every database that
+    /// was not explicitly opened for vector use.
+    pub fn hasPersistedVectorIndex(self: *const Self) bool {
+        return self.page_manager.getHeader().vector_segment_page != NULL_PAGE;
+    }
+
+    /// Whether this database file was built with full-text search.
+    ///
+    /// The dictionary and length trees are created for every database, so they
+    /// cannot tell us anything. The reverse tree is the one built only when
+    /// full-text search is enabled, which makes its root the honest marker.
+    pub fn hasPersistedFtsIndex(self: *const Self) bool {
+        return self.page_manager.getHeader().getTreeRoot(.fts_reverse) != NULL_PAGE;
+    }
+
     pub fn nodeCount(self: *Self) u64 {
         var iter = self.node_tree.range(null, null) catch return 0;
         defer iter.deinit();
