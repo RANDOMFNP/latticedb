@@ -4,7 +4,16 @@ LatticeDB is fast, but speed is not the only thing that matters. Here are cases 
 
 ## You need multiple applications writing to the same database at the same time
 
-LatticeDB is embedded with a single-writer model. One process opens the file and owns it. If you need many clients connecting over a network, use Neo4j, PostgreSQL, or another client-server database.
+LatticeDB is embedded, and one process opens the file and owns it. If you need many
+clients connecting over a network, use Neo4j, PostgreSQL, or another database built
+around a server.
+
+This applies inside a single process too: only one write transaction can be open at a
+time. Beginning a second one while the first is still open fails immediately rather
+than waiting. Reads are unrestricted — as many as you like, at the same time, alongside
+the writer. If your program writes from several threads, they need to take turns. See
+[One writer at a time](../guides/transactions.md#one-writer-at-a-time) for what that
+looks like in practice.
 
 ## Your data is fundamentally tabular
 

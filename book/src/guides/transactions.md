@@ -4,9 +4,9 @@ LatticeDB provides ACID transactions with snapshot isolation.
 
 ## Transaction Model
 
-- **Read transactions** see a consistent snapshot of the database. Multiple read transactions can run concurrently.
-- **Write transactions** can modify the database. Only one write transaction can commit at a time (single-writer model).
-- **Snapshot isolation** — each transaction sees the database as it was when the transaction began. Other transactions' uncommitted changes are invisible.
+- **Read transactions** see a consistent snapshot of the database. As many as you like can run at once.
+- **Write transactions** change the database. Only one can be open at a time — see [One writer at a time](#one-writer-at-a-time) below, because this one has a sharp edge.
+- **Snapshot isolation** — each transaction sees the database as it was the moment it began. Changes made by other transactions that have not committed yet are invisible to it.
 
 ## Using Transactions
 
@@ -90,7 +90,76 @@ This means committed data survives process crashes and power failures.
 
 - Readers never block writers
 - Writers never block readers
-- Multiple readers can execute simultaneously
-- Write transactions are serialized at commit time
+- As many readers as you like can run at the same time
+- Only one write transaction can be open at a time
 
-This makes LatticeDB well-suited for read-heavy workloads typical of RAG and search applications.
+This makes LatticeDB a good fit for read-heavy work, which is what most RAG and search
+applications look like.
+
+## One writer at a time
+
+A database handle allows exactly one open write transaction. If you try to begin a
+second one while the first is still open, you do not wait in a queue — the call fails
+immediately.
+
+This changed in 0.10.0. Before that, overlapping writers were resolved later, at commit
+time. Now the second one is refused up front, which turns a subtle race into an obvious
+error you can see and handle.
+
+Read transactions are unaffected. You can open as many as you want, and they can happily
+run alongside the writer.
+
+### What the error looks like
+
+| Language | What you get |
+|----------|--------------|
+| C | `LATTICE_ERROR_LOCK_TIMEOUT` (`-8`) returned from `lattice_begin` |
+| Python | `LatticeLockTimeoutError` raised |
+| TypeScript | `LatticeError` thrown, with `.code === LatticeErrorCode.LockTimeout` |
+| Go | `ErrorLockTimeout` on the returned error's `Code` |
+
+The name says "lock timeout", which is a slightly misleading inheritance from the error
+code it shares. Nothing is timing out. It means: somebody else is already writing.
+
+### Writing code that respects it
+
+The fix is almost always to finish one write before starting the next, rather than to
+retry. If two parts of your program both want to write, give them the same handle and
+let them take turns:
+
+```python
+# This fails: the second write() begins while the first is still open
+with db.write() as txn_a:
+    txn_a.create_node(labels=["Person"], properties={"name": "Alice"})
+    with db.write() as txn_b:          # raises LatticeLockTimeoutError
+        txn_b.create_node(labels=["Person"], properties={"name": "Bob"})
+    txn_a.commit()
+```
+
+```python
+# This works: one transaction at a time
+with db.write() as txn:
+    txn.create_node(labels=["Person"], properties={"name": "Alice"})
+    txn.create_node(labels=["Person"], properties={"name": "Bob"})
+    txn.commit()
+```
+
+Batching writes into one transaction like this is also faster, because the durability
+work that makes a commit safe happens once instead of twice.
+
+If your program writes from several threads or tasks, put the writes behind something
+that serialises them — a lock, a queue, a single writer task — rather than catching the
+error and retrying in a loop. Retrying works, but it burns effort re-attempting
+something you already know will fail until the other writer finishes.
+
+### Schema changes count as writes
+
+Creating or dropping a property index is also refused while a write transaction is
+open, with the same error. Do schema work when no transaction is in flight:
+
+```python
+db.create_node_property_index("Person", "email")   # no open write transaction
+```
+
+Physical compaction is stricter still: `lattice compact` refuses to run while *any*
+transaction is open, read or write.
