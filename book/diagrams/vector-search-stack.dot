@@ -1,0 +1,21 @@
+// The vector path: optional embedding client, HNSW index, page-backed storage.
+digraph vector_search_stack {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.35
+  ranksep=0.55
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.24,0.13" width=2.2]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+
+  embed [label="EmbeddingClient (optional)\nHTTP to Ollama, OpenAI, …"
+         fillcolor="#f6f8fa" color="#c7d0da" style="filled,rounded,dashed"]
+  hnsw  [label="HnswIndex\nmulti-layer graph, O(log n) search" fillcolor="#dbe9f8"]
+  store [label="VectorStorage\npage-based, backed by the buffer pool"]
+
+  embed -> hnsw  [label="  []f32" style=dashed]
+  hnsw  -> store
+}

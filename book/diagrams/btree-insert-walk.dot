@@ -1,0 +1,28 @@
+// Inserting "zebra": descend by separator key, then write into the leaf.
+digraph btree_insert_walk {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.5
+  ranksep=0.55
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=12
+        fontcolor="#1a1a1a" margin="0.18,0.10"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+
+  root [label="Root  [lion]  [rabbit]" fillcolor="#dbe9f8"]
+
+  p2 [label="page 2" fillcolor="#f6f8fa" color="#c7d0da"]
+  p3 [label="page 3" fillcolor="#f6f8fa" color="#c7d0da"]
+  p4 [label="page 4 (rightmost)\lsnake:v1  tiger:v2  wolf:v3\l"]
+
+  root -> p2 [style=dashed color="#c7d0da"]
+  root -> p3 [style=dashed color="#c7d0da"]
+  root -> p4 [label="  \"zebra\" > \"rabbit\"" color="#4a90d9" penwidth=1.4]
+
+  after [label="page 4\lsnake:v1  tiger:v2  wolf:v3  zebra:v4\l"
+         fillcolor="#eaf5ea" color="#2f7d32" penwidth=1.6]
+
+  p4 -> after [label="  room available — insert in place" color="#2f7d32"]
+}

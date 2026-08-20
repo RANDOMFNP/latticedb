@@ -1,0 +1,29 @@
+<svg
+ viewBox="0.00 0.00 541.00 61.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 56.92)">
+<title>recovery_checkpoint_timeline</title>
+<!-- old -->
+<g id="node1" class="node">
+<title>old</title>
+<polygon fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" points="135.81,-52.92 0,-52.92 0,0 135.81,0 135.81,-52.92"/>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-29.51" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">old records</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-16.01" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">already on disk</text>
+</g>
+<!-- ck -->
+<g id="node2" class="node">
+<title>ck</title>
+<polygon fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.6" points="300.87,-52.92 171.81,-52.92 171.81,0 300.87,0 300.87,-52.92"/>
+<text xml:space="preserve" text-anchor="start" x="189.09" y="-29.51" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">CHECKPOINT</text>
+<text xml:space="preserve" text-anchor="start" x="189.09" y="-16.01" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">checkpoint_lsn</text>
+</g>
+<!-- old&#45;&gt;ck -->
+<!-- new -->
+<g id="node3" class="node">
+<title>new</title>
+<polygon fill="#eaf5ea" stroke="#2f7d32" stroke-width="1.5" points="533.43,-52.92 336.87,-52.92 336.87,0 533.43,0 533.43,-52.92"/>
+<text xml:space="preserve" text-anchor="start" x="354.15" y="-29.51" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">records since checkpoint</text>
+<text xml:space="preserve" text-anchor="start" x="354.15" y="-16.01" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">recovery replays these</text>
+</g>
+<!-- ck&#45;&gt;new -->
+</g>
+</svg>

@@ -1,0 +1,64 @@
+<svg
+ viewBox="0.00 0.00 488.00 232.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 228.3)">
+<title>btree_insert_walk</title>
+<!-- root -->
+<g id="node1" class="node">
+<title>root</title>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M225.92,-224.3C225.92,-224.3 59,-224.3 59,-224.3 53,-224.3 47,-218.3 47,-212.3 47,-212.3 47,-200.3 47,-200.3 47,-194.3 53,-188.3 59,-188.3 59,-188.3 225.92,-188.3 225.92,-188.3 231.92,-188.3 237.92,-194.3 237.92,-200.3 237.92,-200.3 237.92,-212.3 237.92,-212.3 237.92,-218.3 231.92,-224.3 225.92,-224.3"/>
+<text xml:space="preserve" text-anchor="middle" x="142.46" y="-202.03" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">Root &#160;[lion] &#160;[rabbit]</text>
+</g>
+<!-- p2 -->
+<g id="node2" class="node">
+<title>p2</title>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M58.92,-133.6C58.92,-133.6 12,-133.6 12,-133.6 6,-133.6 0,-127.6 0,-121.6 0,-121.6 0,-109.6 0,-109.6 0,-103.6 6,-97.6 12,-97.6 12,-97.6 58.92,-97.6 58.92,-97.6 64.92,-97.6 70.92,-103.6 70.92,-109.6 70.92,-109.6 70.92,-121.6 70.92,-121.6 70.92,-127.6 64.92,-133.6 58.92,-133.6"/>
+<text xml:space="preserve" text-anchor="middle" x="35.46" y="-111.33" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">page 2</text>
+</g>
+<!-- root&#45;&gt;p2 -->
+<g id="edge1" class="edge">
+<title>root&#45;&gt;p2</title>
+<path fill="none" stroke="#c7d0da" stroke-width="1.1" stroke-dasharray="5,2" d="M121.32,-187.78C104.61,-173.93 81.16,-154.49 62.99,-139.42"/>
+<polygon fill="#c7d0da" stroke="#c7d0da" stroke-width="1.1" points="64.79,-137.73 57.84,-135.15 61.66,-141.5 64.79,-137.73"/>
+</g>
+<!-- p3 -->
+<g id="node3" class="node">
+<title>p3</title>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M165.92,-133.6C165.92,-133.6 119,-133.6 119,-133.6 113,-133.6 107,-127.6 107,-121.6 107,-121.6 107,-109.6 107,-109.6 107,-103.6 113,-97.6 119,-97.6 119,-97.6 165.92,-97.6 165.92,-97.6 171.92,-97.6 177.92,-103.6 177.92,-109.6 177.92,-109.6 177.92,-121.6 177.92,-121.6 177.92,-127.6 171.92,-133.6 165.92,-133.6"/>
+<text xml:space="preserve" text-anchor="middle" x="142.46" y="-111.33" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">page 3</text>
+</g>
+<!-- root&#45;&gt;p3 -->
+<g id="edge2" class="edge">
+<title>root&#45;&gt;p3</title>
+<path fill="none" stroke="#c7d0da" stroke-width="1.1" stroke-dasharray="5,2" d="M142.46,-187.78C142.46,-174.9 142.46,-157.19 142.46,-142.65"/>
+<polygon fill="#c7d0da" stroke="#c7d0da" stroke-width="1.1" points="144.91,-142.75 142.46,-135.75 140.01,-142.75 144.91,-142.75"/>
+</g>
+<!-- p4 -->
+<g id="node4" class="node">
+<title>p4</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M430.67,-137.05C430.67,-137.05 226.25,-137.05 226.25,-137.05 220.25,-137.05 214.25,-131.05 214.25,-125.05 214.25,-125.05 214.25,-106.15 214.25,-106.15 214.25,-100.15 220.25,-94.15 226.25,-94.15 226.25,-94.15 430.67,-94.15 430.67,-94.15 436.67,-94.15 442.67,-100.15 442.67,-106.15 442.67,-106.15 442.67,-125.05 442.67,-125.05 442.67,-131.05 436.67,-137.05 430.67,-137.05"/>
+<text xml:space="preserve" text-anchor="start" x="227.21" y="-118.45" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">page 4 (rightmost)</text>
+<text xml:space="preserve" text-anchor="start" x="227.21" y="-104.2" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">snake:v1 &#160;tiger:v2 &#160;wolf:v3</text>
+</g>
+<!-- root&#45;&gt;p4 -->
+<g id="edge3" class="edge">
+<title>root&#45;&gt;p4</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.4" d="M179.21,-187.78C207,-174.52 245.54,-156.14 276.49,-141.38"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.4" points="277.41,-143.66 282.68,-138.43 275.3,-139.23 277.41,-143.66"/>
+<text xml:space="preserve" text-anchor="middle" x="281.54" y="-158.8" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280"> &#160;&quot;zebra&quot; &gt; &quot;rabbit&quot;</text>
+</g>
+<!-- after -->
+<g id="node5" class="node">
+<title>after</title>
+<path fill="#eaf5ea" stroke="#2f7d32" stroke-width="1.6" d="M468.17,-42.9C468.17,-42.9 188.75,-42.9 188.75,-42.9 182.75,-42.9 176.75,-36.9 176.75,-30.9 176.75,-30.9 176.75,-12 176.75,-12 176.75,-6 182.75,0 188.75,0 188.75,0 468.17,0 468.17,0 474.17,0 480.17,-6 480.17,-12 480.17,-12 480.17,-30.9 480.17,-30.9 480.17,-36.9 474.17,-42.9 468.17,-42.9"/>
+<text xml:space="preserve" text-anchor="start" x="189.71" y="-24.3" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">page 4</text>
+<text xml:space="preserve" text-anchor="start" x="189.71" y="-10.05" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">snake:v1 &#160;tiger:v2 &#160;wolf:v3 &#160;zebra:v4</text>
+</g>
+<!-- p4&#45;&gt;after -->
+<g id="edge4" class="edge">
+<title>p4&#45;&gt;after</title>
+<path fill="none" stroke="#2f7d32" stroke-width="1.1" d="M328.46,-93.69C328.46,-81.41 328.46,-65.68 328.46,-52.13"/>
+<polygon fill="#2f7d32" stroke="#2f7d32" stroke-width="1.1" points="330.91,-52.26 328.46,-45.26 326.01,-52.26 330.91,-52.26"/>
+<text xml:space="preserve" text-anchor="middle" x="401.21" y="-64.65" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280"> &#160;room available — insert in place</text>
+</g>
+</g>
+</svg>

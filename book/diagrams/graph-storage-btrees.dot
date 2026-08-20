@@ -1,0 +1,26 @@
+// The graph is decomposed into four B+Trees, each tuned to one access pattern.
+digraph graph_storage_btrees {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.35
+  ranksep=0.5
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.22,0.13" width=1.9]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
+
+  layer [label="Graph Storage Layer" fillcolor="#dbe9f8" width=8.0]
+
+  symbols [label="SYMBOLS\nstring → id\nid → string"]
+  nodes   [label="NODES\nnode_id → NodeData"]
+  edges   [label="EDGES\ncomposite key → data"]
+  labels  [label="LABEL_INDEX\n(label, node) → ∅"]
+
+  layer -> symbols
+  layer -> nodes
+  layer -> edges
+  layer -> labels
+
+  { rank=same; symbols; nodes; edges; labels }
+}

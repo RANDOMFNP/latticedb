@@ -26,6 +26,7 @@ This guide covers how to set up your development environment, build the project,
 
 - **NumPy** - Required for vector operations in Python bindings
 - **pytest** - Required for running Python tests
+- **Graphviz** - Only needed to regenerate documentation diagrams (`brew install graphviz`)
 
 ## Project Structure
 
@@ -211,6 +212,32 @@ tests/test_integration.py: 21 skipped (Native library not found)
 5. For TypeScript: Add or update the FFI signature in `bindings/typescript/src/ffi/`
 6. For TypeScript: Add TypeScript wrapper in the appropriate source file
 7. Add tests for all bindings
+
+### Changing Documentation Diagrams
+
+Architecture diagrams are Graphviz sources in `book/diagrams/*.dot`, rendered to
+`book/src/assets/diagrams/*.svg`. Both the source and the rendered SVG are
+committed, which keeps Graphviz out of the docs CI job.
+
+```bash
+# edit book/diagrams/<name>.dot, then
+scripts/render_diagrams.py
+```
+
+Reference a diagram from Markdown with the `diagram` class so it picks up the
+light plate that keeps it legible on every mdBook theme:
+
+```html
+<img class="diagram diagram-md" src="../assets/diagrams/<name>.svg"
+     alt="Describe what the diagram shows, not that it is a diagram">
+```
+
+Use `diagram-sm` or `diagram-md` to stop a narrow diagram stretching to fill the
+column. Alt text is required — it is the only description a screen reader or a
+search engine gets.
+
+Prefer a real Markdown table over a diagram for anything tabular: byte layouts,
+field lists, and lookup tables all read better as tables and stay searchable.
 
 ### Preparing a Release
 

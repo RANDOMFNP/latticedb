@@ -1,0 +1,32 @@
+// A full leaf splits in two and promotes a separator key to the parent.
+digraph btree_leaf_split {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.5
+  ranksep=0.55
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=12
+        fontcolor="#1a1a1a" margin="0.18,0.10"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+
+  before [label="a:1  b:2  c:3  d:4  e:5" fillcolor="#fdf0ea" color="#c2703f"]
+
+  after_l [label="a:1  b:2  c:3"]
+  after_r [label="d:4  e:5  f:6"]
+
+  promoted [label="\"d\" promoted to parent" shape=box style="filled,rounded"
+            fillcolor="#dbe9f8" color="#4a90d9"
+            fontname="Helvetica,Arial,sans-serif" fontsize=11]
+
+  before -> after_l [label="  insert \"f:6\" — no room, split  "]
+  before -> after_r
+
+  { rank=same
+    after_l -> after_r [dir=both color="#4a90d9" style=dashed constraint=false]
+  }
+
+  after_l -> promoted [style=invis]
+  after_r -> promoted [color="#4a90d9"]
+}

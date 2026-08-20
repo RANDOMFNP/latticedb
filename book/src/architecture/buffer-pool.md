@@ -8,47 +8,19 @@ The Buffer Pool is a cache that keeps frequently accessed pages in memory. Inste
 
 Disk I/O is slow:
 
-```
-Operation          Time
-─────────────────────────────
-CPU instruction    ~1 ns
-RAM access         ~100 ns
-SSD read           ~100,000 ns (100 μs)
-HDD read           ~10,000,000 ns (10 ms)
-```
+| Operation | Typical latency |
+|-----------|----------------:|
+| CPU instruction | ~1 ns |
+| RAM access | ~100 ns |
+| SSD read | ~100,000 ns (100 µs) |
+| HDD read | ~10,000,000 ns (10 ms) |
 
 RAM is 1,000-100,000x faster than disk. If we can keep hot pages in RAM, performance improves dramatically.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Buffer Pool                               │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                      Page Table                          │    │
-│  │              (PageId → FrameId mapping)                  │    │
-│  │                                                          │    │
-│  │    PageId 5 ──► Frame 2                                  │    │
-│  │    PageId 12 ─► Frame 0                                  │    │
-│  │    PageId 3 ──► Frame 7                                  │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                              │                                   │
-│                              ▼                                   │
-│  ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐   │
-│  │Frame 0│ │Frame 1│ │Frame 2│ │Frame 3│ │Frame 4│ │Frame 5│   │
-│  │───────│ │───────│ │───────│ │───────│ │───────│ │───────│   │
-│  │pg: 12 │ │pg: -- │ │pg: 5  │ │pg: -- │ │pg: 8  │ │pg: 1  │   │
-│  │pin: 2 │ │pin: 0 │ │pin: 1 │ │pin: 0 │ │pin: 0 │ │pin: 3 │   │
-│  │dirty:Y│ │dirty:N│ │dirty:N│ │dirty:N│ │dirty:Y│ │dirty:N│   │
-│  │use: 3 │ │use: 0 │ │use: 1 │ │use: 0 │ │use: 2 │ │use: 5 │   │
-│  │[data] │ │[data] │ │[data] │ │[data] │ │[data] │ │[data] │   │
-│  └───────┘ └───────┘ └───────┘ └───────┘ └───────┘ └───────┘   │
-│                                                                  │
-│  Free list: [1, 3]  (frames not holding any page)               │
-│  Clock hand: ──────────────────────►                            │
-└─────────────────────────────────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/buffer-pool-frames.svg"
+     alt="The buffer pool: a page table mapping page ids to frame ids sits above a row of six frames, each recording the page it holds, its pin count, its dirty flag and its use count. Frames 1 and 3 are free">
 
 ## The Frame
 
@@ -69,21 +41,23 @@ pub const BufferFrame = struct {
 
 The pin count is a reference count:
 
-```
-fetchPage()  ──► pin_count += 1   "I'm using this page"
-unpinPage()  ──► pin_count -= 1   "I'm done with this page"
+| Call | Effect | Meaning |
+|------|--------|---------|
+| `fetchPage()` | `pin_count += 1` | I am using this page |
+| `unpinPage()` | `pin_count -= 1` | I am done with this page |
 
-pin_count > 0  ──► Page is in use, cannot be evicted
-pin_count = 0  ──► Page can be evicted if needed
-```
+| Pin count | Consequence |
+|-----------|-------------|
+| `> 0` | Page is in use and cannot be evicted |
+| `= 0` | Page may be evicted if a frame is needed |
 
 ### Dirty Flag
 
-```
-Read page    ──► dirty = false    "Matches disk"
-Modify page  ──► dirty = true     "Different from disk"
-Write to disk ─► dirty = false    "Matches disk again"
-```
+| Event | Dirty flag | Meaning |
+|-------|-----------|---------|
+| Read page | `false` | Frame matches disk |
+| Modify page | `true` | Frame differs from disk |
+| Write to disk | `false` | Frame matches disk again |
 
 Dirty pages MUST be written to disk before eviction. Otherwise we lose data!
 
@@ -154,20 +128,8 @@ When the buffer pool is full, we need to evict a page to make room. We use the C
 
 Imagine the frames arranged in a circle with a clock hand:
 
-```
-                    ┌─────┐
-               ┌────│  3  │────┐
-              ╱     │use:1│     ╲
-         ┌─────┐    └─────┘    ┌─────┐
-         │  2  │               │  4  │
-         │use:0│               │use:2│
-         └─────┘               └─────┘
-              ╲     ┌─────┐     ╱
-               └────│  1  │────┘
-                    │use:0│◄──── clock hand
-                    │pin:0│
-                    └─────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/buffer-pool-clock.svg"
+     alt="Four frames arranged in a ring. The clock hand points at frame 1, which has a use count of zero and a pin count of zero and is therefore the eviction candidate; frames 3 and 4 have non-zero use counts and are skipped">
 
 **To find a victim:**
 
@@ -266,22 +228,22 @@ The buffer pool is thread-safe:
 2. **Per-frame latches** protect page data
 3. **Atomic pin_count** for safe reference counting
 
-```
-Thread 1: fetchPage(5)          Thread 2: fetchPage(5)
-    │                               │
-    ├─► mutex.lock()                ├─► mutex.lock() [WAIT]
-    │   look up page 5              │
-    │   pin_count++                 │
-    │   mutex.unlock() ─────────────┼─► mutex.lock() [GOT IT]
-    │                               │   look up page 5 [FOUND]
-    ├─► frame.latch.read()          │   pin_count++
-    │   ... read data ...           │   mutex.unlock()
-    │                               │
-    │                               ├─► frame.latch.read()
-    │                               │   ... read data ...
-    │                               │
-    ├─► unpinPage()                 ├─► unpinPage()
-```
+| Step | Thread 1 — `fetchPage(5)` | Thread 2 — `fetchPage(5)` |
+|-----:|---------------------------|---------------------------|
+| 1 | `mutex.lock()` | `mutex.lock()` — blocked |
+| 2 | look up page 5 | waiting |
+| 3 | `pin_count++` | waiting |
+| 4 | `mutex.unlock()` | `mutex.lock()` — acquired |
+| 5 | `frame.latch.read()` | look up page 5 — found |
+| 6 | read data | `pin_count++` |
+| 7 | read data | `mutex.unlock()` |
+| 8 | read data | `frame.latch.read()` |
+| 9 | `unpinPage()` | read data |
+| 10 | — | `unpinPage()` |
+
+The page table mutex is held only long enough to find the frame and bump the pin
+count. Reading the page data happens under the per-frame latch, so two readers of
+the same page overlap rather than serialising.
 
 Multiple threads can read the same page concurrently (shared latch).
 

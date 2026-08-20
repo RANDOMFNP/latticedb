@@ -1,0 +1,30 @@
+// B+Tree: internal nodes hold keys only; leaves hold keys and values and are
+// linked left-to-right so range scans read sequentially.
+digraph btree_structure {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.5
+  ranksep=0.6
+  fontname="Helvetica,Arial,sans-serif"
+
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=12
+        fontcolor="#1a1a1a" margin="0.18,0.10"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
+
+  root [label="[30]   [60]   [90]" fillcolor="#dbe9f8" xlabel=""]
+
+  leaf1 [label="10:val  20:val"]
+  leaf2 [label="30:val  50:val"]
+  leaf3 [label="60:val  80:val"]
+
+  root -> leaf1
+  root -> leaf2
+  root -> leaf3
+
+  // Sibling pointers: the linked list that makes range scans sequential.
+  { rank=same
+    leaf1 -> leaf2 [dir=both color="#4a90d9" style=dashed constraint=false]
+    leaf2 -> leaf3 [dir=both color="#4a90d9" style=dashed constraint=false]
+  }
+}

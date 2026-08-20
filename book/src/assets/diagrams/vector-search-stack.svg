@@ -1,0 +1,40 @@
+<svg
+ viewBox="0.00 0.00 246.00 233.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 228.91)">
+<title>vector_search_stack</title>
+<!-- embed -->
+<g id="node1" class="node">
+<title>embed</title>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" stroke-dasharray="5,2" d="M199.56,-224.91C199.56,-224.91 38.25,-224.91 38.25,-224.91 32.25,-224.91 26.25,-218.91 26.25,-212.91 26.25,-212.91 26.25,-192.69 26.25,-192.69 26.25,-186.69 32.25,-180.69 38.25,-180.69 38.25,-180.69 199.56,-180.69 199.56,-180.69 205.56,-180.69 211.56,-186.69 211.56,-192.69 211.56,-192.69 211.56,-212.91 211.56,-212.91 211.56,-218.91 205.56,-224.91 199.56,-224.91"/>
+<text xml:space="preserve" text-anchor="middle" x="118.91" y="-204.15" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">EmbeddingClient (optional)</text>
+<text xml:space="preserve" text-anchor="middle" x="118.91" y="-191.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">HTTP to Ollama, OpenAI, …</text>
+</g>
+<!-- hnsw -->
+<g id="node2" class="node">
+<title>hnsw</title>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M212.69,-129.44C212.69,-129.44 25.13,-129.44 25.13,-129.44 19.12,-129.44 13.12,-123.44 13.12,-117.44 13.12,-117.44 13.12,-97.22 13.12,-97.22 13.12,-91.22 19.12,-85.22 25.12,-85.22 25.12,-85.22 212.69,-85.22 212.69,-85.22 218.69,-85.22 224.69,-91.22 224.69,-97.22 224.69,-97.22 224.69,-117.44 224.69,-117.44 224.69,-123.44 218.69,-129.44 212.69,-129.44"/>
+<text xml:space="preserve" text-anchor="middle" x="118.91" y="-108.68" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">HnswIndex</text>
+<text xml:space="preserve" text-anchor="middle" x="118.91" y="-95.93" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">multi&#45;layer graph, O(log n) search</text>
+</g>
+<!-- embed&#45;&gt;hnsw -->
+<g id="edge1" class="edge">
+<title>embed&#45;&gt;hnsw</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" stroke-dasharray="5,2" d="M118.91,-180.12C118.91,-167.73 118.91,-152.01 118.91,-138.44"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="121.36,-138.56 118.91,-131.56 116.46,-138.56 121.36,-138.56"/>
+<text xml:space="preserve" text-anchor="middle" x="131.66" y="-151.19" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280"> &#160;[]f32</text>
+</g>
+<!-- store -->
+<g id="node3" class="node">
+<title>store</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M225.81,-44.22C225.81,-44.22 12,-44.22 12,-44.22 6,-44.22 0,-38.22 0,-32.22 0,-32.22 0,-12 0,-12 0,-6 6,0 12,0 12,0 225.81,0 225.81,0 231.81,0 237.81,-6 237.81,-12 237.81,-12 237.81,-32.22 237.81,-32.22 237.81,-38.22 231.81,-44.22 225.81,-44.22"/>
+<text xml:space="preserve" text-anchor="middle" x="118.91" y="-23.46" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">VectorStorage</text>
+<text xml:space="preserve" text-anchor="middle" x="118.91" y="-10.71" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">page&#45;based, backed by the buffer pool</text>
+</g>
+<!-- hnsw&#45;&gt;store -->
+<g id="edge2" class="edge">
+<title>hnsw&#45;&gt;store</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M118.91,-84.9C118.91,-75.27 118.91,-63.73 118.91,-53.25"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="121.36,-53.42 118.91,-46.42 116.46,-53.42 121.36,-53.42"/>
+</g>
+</g>
+</svg>

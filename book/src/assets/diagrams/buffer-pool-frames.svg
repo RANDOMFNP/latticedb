@@ -1,0 +1,87 @@
+<svg
+ viewBox="0.00 0.00 454.00 195.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 190.55)">
+<title>buffer_pool_frames</title>
+<!-- table -->
+<g id="node1" class="node">
+<title>table</title>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M217.41,-186.55C217.41,-186.55 12,-186.55 12,-186.55 6,-186.55 0,-180.55 0,-174.55 0,-174.55 0,-130.15 0,-130.15 0,-124.15 6,-118.15 12,-118.15 12,-118.15 217.41,-118.15 217.41,-118.15 223.41,-118.15 229.41,-124.15 229.41,-130.15 229.41,-130.15 229.41,-174.55 229.41,-174.55 229.41,-180.55 223.41,-186.55 217.41,-186.55"/>
+<text xml:space="preserve" text-anchor="start" x="10.08" y="-168.9" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">Page Table &#160;&#160;(PageId → FrameId)</text>
+<text xml:space="preserve" text-anchor="start" x="10.08" y="-155.4" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;&#160;page 5 &#160;→ frame 2</text>
+<text xml:space="preserve" text-anchor="start" x="10.08" y="-141.9" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;&#160;page 12 → frame 0</text>
+<text xml:space="preserve" text-anchor="start" x="10.08" y="-128.4" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;&#160;page 3 &#160;→ frame 7</text>
+</g>
+<!-- f0 -->
+<g id="node2" class="node">
+<title>f0</title>
+<path fill="#fdf0ea" stroke="#c2703f" stroke-width="1.2" d="M58.78,-78.15C58.78,-78.15 20.62,-78.15 20.62,-78.15 14.62,-78.15 8.62,-72.15 8.62,-66.15 8.62,-66.15 8.62,-12 8.62,-12 8.62,-6 14.62,0 20.62,0 20.62,0 58.78,0 58.78,0 64.78,0 70.78,-6 70.78,-12 70.78,-12 70.78,-66.15 70.78,-66.15 70.78,-72.15 64.78,-78.15 58.78,-78.15"/>
+<text xml:space="preserve" text-anchor="start" x="18.7" y="-61.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">Frame 0</text>
+<text xml:space="preserve" text-anchor="start" x="18.7" y="-48.7" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pg 12</text>
+<text xml:space="preserve" text-anchor="start" x="18.7" y="-35.95" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pin 2</text>
+<text xml:space="preserve" text-anchor="start" x="18.7" y="-23.2" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">dirty Y</text>
+<text xml:space="preserve" text-anchor="start" x="18.7" y="-10.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">use 3</text>
+</g>
+<!-- table&#45;&gt;f0 -->
+<!-- f2 -->
+<g id="node4" class="node">
+<title>f2</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M208.78,-78.15C208.78,-78.15 170.62,-78.15 170.62,-78.15 164.62,-78.15 158.62,-72.15 158.62,-66.15 158.62,-66.15 158.62,-12 158.62,-12 158.62,-6 164.62,0 170.62,0 170.62,0 208.78,0 208.78,0 214.78,0 220.78,-6 220.78,-12 220.78,-12 220.78,-66.15 220.78,-66.15 220.78,-72.15 214.78,-78.15 208.78,-78.15"/>
+<text xml:space="preserve" text-anchor="start" x="168.7" y="-61.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">Frame 2</text>
+<text xml:space="preserve" text-anchor="start" x="168.7" y="-48.7" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pg 5</text>
+<text xml:space="preserve" text-anchor="start" x="168.7" y="-35.95" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pin 1</text>
+<text xml:space="preserve" text-anchor="start" x="168.7" y="-23.2" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">dirty N</text>
+<text xml:space="preserve" text-anchor="start" x="168.7" y="-10.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">use 1</text>
+</g>
+<!-- table&#45;&gt;f2 -->
+<g id="edge2" class="edge">
+<title>table&#45;&gt;f2</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.1" d="M137.41,-117.66C144.27,-107.49 151.91,-96.15 159.18,-85.36"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="160.98,-86.76 162.73,-80.1 157.21,-84.22 160.98,-86.76"/>
+</g>
+<!-- f1 -->
+<g id="node3" class="node">
+<title>f1</title>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M133.78,-78.15C133.78,-78.15 95.62,-78.15 95.62,-78.15 89.62,-78.15 83.62,-72.15 83.62,-66.15 83.62,-66.15 83.62,-12 83.62,-12 83.62,-6 89.62,0 95.62,0 95.62,0 133.78,0 133.78,0 139.78,0 145.78,-6 145.78,-12 145.78,-12 145.78,-66.15 145.78,-66.15 145.78,-72.15 139.78,-78.15 133.78,-78.15"/>
+<text xml:space="preserve" text-anchor="start" x="93.7" y="-61.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">Frame 1</text>
+<text xml:space="preserve" text-anchor="start" x="93.7" y="-48.7" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">free</text>
+<text xml:space="preserve" text-anchor="start" x="93.7" y="-35.95" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pin 0</text>
+<text xml:space="preserve" text-anchor="start" x="93.7" y="-23.2" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">dirty N</text>
+<text xml:space="preserve" text-anchor="start" x="93.7" y="-10.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">use 0</text>
+</g>
+<!-- f0&#45;&gt;f1 -->
+<!-- f1&#45;&gt;f2 -->
+<!-- f3 -->
+<g id="node5" class="node">
+<title>f3</title>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M283.78,-78.15C283.78,-78.15 245.62,-78.15 245.62,-78.15 239.62,-78.15 233.62,-72.15 233.62,-66.15 233.62,-66.15 233.62,-12 233.62,-12 233.62,-6 239.62,0 245.62,0 245.62,0 283.78,0 283.78,0 289.78,0 295.78,-6 295.78,-12 295.78,-12 295.78,-66.15 295.78,-66.15 295.78,-72.15 289.78,-78.15 283.78,-78.15"/>
+<text xml:space="preserve" text-anchor="start" x="243.7" y="-61.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">Frame 3</text>
+<text xml:space="preserve" text-anchor="start" x="243.7" y="-48.7" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">free</text>
+<text xml:space="preserve" text-anchor="start" x="243.7" y="-35.95" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pin 0</text>
+<text xml:space="preserve" text-anchor="start" x="243.7" y="-23.2" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">dirty N</text>
+<text xml:space="preserve" text-anchor="start" x="243.7" y="-10.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">use 0</text>
+</g>
+<!-- f2&#45;&gt;f3 -->
+<!-- f4 -->
+<g id="node6" class="node">
+<title>f4</title>
+<path fill="#fdf0ea" stroke="#c2703f" stroke-width="1.2" d="M358.78,-78.15C358.78,-78.15 320.62,-78.15 320.62,-78.15 314.62,-78.15 308.62,-72.15 308.62,-66.15 308.62,-66.15 308.62,-12 308.62,-12 308.62,-6 314.62,0 320.62,0 320.62,0 358.78,0 358.78,0 364.78,0 370.78,-6 370.78,-12 370.78,-12 370.78,-66.15 370.78,-66.15 370.78,-72.15 364.78,-78.15 358.78,-78.15"/>
+<text xml:space="preserve" text-anchor="start" x="318.7" y="-61.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">Frame 4</text>
+<text xml:space="preserve" text-anchor="start" x="318.7" y="-48.7" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pg 8</text>
+<text xml:space="preserve" text-anchor="start" x="318.7" y="-35.95" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pin 0</text>
+<text xml:space="preserve" text-anchor="start" x="318.7" y="-23.2" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">dirty Y</text>
+<text xml:space="preserve" text-anchor="start" x="318.7" y="-10.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">use 2</text>
+</g>
+<!-- f3&#45;&gt;f4 -->
+<!-- f5 -->
+<g id="node7" class="node">
+<title>f5</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M433.78,-78.15C433.78,-78.15 395.62,-78.15 395.62,-78.15 389.62,-78.15 383.62,-72.15 383.62,-66.15 383.62,-66.15 383.62,-12 383.62,-12 383.62,-6 389.62,0 395.62,0 395.62,0 433.78,0 433.78,0 439.78,0 445.78,-6 445.78,-12 445.78,-12 445.78,-66.15 445.78,-66.15 445.78,-72.15 439.78,-78.15 433.78,-78.15"/>
+<text xml:space="preserve" text-anchor="start" x="393.7" y="-61.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">Frame 5</text>
+<text xml:space="preserve" text-anchor="start" x="393.7" y="-48.7" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pg 1</text>
+<text xml:space="preserve" text-anchor="start" x="393.7" y="-35.95" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">pin 3</text>
+<text xml:space="preserve" text-anchor="start" x="393.7" y="-23.2" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">dirty N</text>
+<text xml:space="preserve" text-anchor="start" x="393.7" y="-10.45" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">use 5</text>
+</g>
+<!-- f4&#45;&gt;f5 -->
+</g>
+</svg>

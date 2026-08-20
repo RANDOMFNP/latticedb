@@ -57,7 +57,7 @@ npm run build
 
 ## Project Structure
 
-```
+```text
 src/
 ├── core/           # Core types and utilities
 ├── storage/        # B+Tree, page management, WAL

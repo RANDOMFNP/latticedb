@@ -34,45 +34,15 @@ With 100 keys per node: log100(1M) ≈ 3 levels.
 
 B+Trees store all data in leaf nodes. Internal nodes only contain keys for routing:
 
-```
-                    ┌─────────────────────┐
-                    │   [30]  [60]  [90]  │  ◄── Internal: keys only
-                    └───┬──────┬──────┬───┘
-                       ╱       │       ╲
-        ┌─────────────┘        │        └─────────────┐
-        ▼                      ▼                      ▼
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│ 10:val 20:val │◄──►│ 30:val 50:val │◄──►│ 60:val 80:val │
-└───────────────┘    └───────────────┘    └───────────────┘
-        ▲                                         ▲
-        └─── Leaves: keys AND values ─────────────┘
-             Linked for range scans
-```
+<img class="diagram diagram-md" src="../assets/diagrams/btree-structure.svg"
+     alt="A B+Tree: one internal node holding the keys 30, 60 and 90 routes to three leaf nodes holding key-value pairs, and the leaves are linked to each other left to right for range scans">
 
 ## Our Implementation: Direct Page Manipulation
 
 We don't create "node objects" in memory. Instead, we read/write bytes directly in page buffers. The "node" is just a lens over page bytes.
 
-```
-Traditional approach:                Our approach:
-
-┌─────────────┐                     ┌─────────────┐
-│ Page bytes  │                     │ Page bytes  │
-└──────┬──────┘                     └──────┬──────┘
-       │ deserialize                       │
-       ▼                                   │ direct access
-┌─────────────┐                            │
-│ Node struct │                            │
-│ - keys[]    │                            ▼
-│ - values[]  │                     Read/write at
-│ - children[]│                     calculated offsets
-└──────┬──────┘
-       │ serialize
-       ▼
-┌─────────────┐
-│ Page bytes  │
-└─────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/btree-page-access.svg"
+     alt="Two approaches side by side. Traditional: page bytes are deserialised into a node struct and serialised back. LatticeDB: page bytes are read and written directly at calculated offsets, with no intermediate struct">
 
 No intermediate objects. No serialization overhead.
 
@@ -80,30 +50,18 @@ No intermediate objects. No serialization overhead.
 
 ### Leaf Node
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│                         Leaf Page (4KB)                         │
-├────────────────────────────────────────────────────────────────┤
-│ Bytes 0-7:   Page Header (checksum, type=leaf, flags)          │
-├────────────────────────────────────────────────────────────────┤
-│ Bytes 8-9:   Entry count (u16)                                 │
-│ Bytes 10-11: Flags (u16)                                       │
-│ Bytes 12-15: Next leaf page (u32)                              │
-│ Bytes 16-19: Prev leaf page (u32)                              │
-├────────────────────────────────────────────────────────────────┤
-│ Slot 0: entry_offset (u16)                                      │
-│ Slot 1: entry_offset (u16)                                      │
-│ Slot 2: ...                                                    │
-│         ...                                                    │
-│                    [free space grows down ↓]                   │
-│                                                                │
-│                    [entry bytes grow down ↓ from page end]      │
-│                                                                │
-│ [key_len][value_len][key2][value2-or-overflow-descriptor]      │
-│ [key_len][value_len][key1][value1-or-overflow-descriptor]      │
-└────────────────────────────────────────────────────────────────┘
-                                                          Byte 4095
-```
+Leaf pages are slotted pages. The header and slot array grow forward from byte 0;
+entry bytes grow backward from byte 4095; free space is whatever remains in the middle.
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0–7 | 8 B | Page header — checksum, type (leaf), flags |
+| 8–9 | 2 B | Entry count (u16) |
+| 10–11 | 2 B | Flags (u16) |
+| 12–15 | 4 B | Next leaf page (u32) |
+| 16–19 | 4 B | Previous leaf page (u32) |
+| 20 → | 2 B each | Slot array — one `entry_offset` (u16) per entry, growing forward |
+| ← 4095 | variable | Entries, growing backward: `[key_len][value_len][key][value or overflow descriptor]` |
 
 **Variable-length entries**: Keys and values are stored at the end of the page,
 growing downward from high offsets. Slots at the front point to the entry
@@ -122,25 +80,17 @@ impossible to divide into two valid ordered pages.
 
 ### Internal Node
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│                       Internal Page (4KB)                       │
-├────────────────────────────────────────────────────────────────┤
-│ Bytes 0-7:   Page Header (checksum, type=internal, flags)      │
-├────────────────────────────────────────────────────────────────┤
-│ Bytes 8-9:   Key count (u16)                                   │
-│ Bytes 10-11: Level (u16; 0 = parent of leaves)                 │
-│ Bytes 12-15: Rightmost child (u32)                             │
-├────────────────────────────────────────────────────────────────┤
-│ Slot 0: key_offset (u16), child_page (u32)                     │
-│ Slot 1: key_offset (u16), child_page (u32)                     │
-│         ...                                                    │
-│                    [free space]                                │
-│                                                                │
-│ "separator_key2"                                               │
-│ "separator_key1"                                               │
-└────────────────────────────────────────────────────────────────┘
-```
+Internal pages use the same slotted layout, but each slot carries a child pointer
+alongside the key offset, and the values are separator keys rather than user data.
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0–7 | 8 B | Page header — checksum, type (internal), flags |
+| 8–9 | 2 B | Key count (u16) |
+| 10–11 | 2 B | Level (u16; 0 = parent of leaves) |
+| 12–15 | 4 B | Rightmost child (u32) |
+| 16 → | 6 B each | Slot array — `key_offset` (u16) plus `child_page` (u32), growing forward |
+| ← 4095 | variable | Separator keys, growing backward |
 
 ## Point Lookup
 
@@ -171,19 +121,8 @@ pub fn get(self: *Self, key: []const u8) !?[]const u8 {
 
 **Example lookup for key "dog":**
 
-```
-                        Root (Internal)
-                    ┌─────────────────────┐
-                    │  [cat]     [fish]   │
-                    └───┬──────────┬──────┘
-                       ╱           ╲
-     "dog" > "cat"    ╱             ╲
-     "dog" < "fish"  ╱               ╲
-                    ▼
-             ┌─────────────────┐
-             │ cow:v1  dog:v2  │ ◄── Found! Return v2
-             └─────────────────┘
-```
+<img class="diagram diagram-sm" src="../assets/diagrams/btree-lookup.svg"
+     alt="Looking up the key dog. From the root holding separators cat and fish, the search follows the middle branch because dog sorts after cat and before fish, reaching the leaf containing cow and dog">
 
 ## Insertion
 
@@ -216,24 +155,8 @@ pub fn insert(self: *Self, key: []const u8, value: []const u8) !void {
 
 When a leaf is full:
 
-```
-Before split:
-┌─────────────────────────────────────┐
-│  a:1  b:2  c:3  d:4  e:5  [FULL]   │
-└─────────────────────────────────────┘
-                 │
-                 │ Insert "f:6" - no room!
-                 ▼
-After split:
-┌──────────────────────┐    ┌──────────────────────┐
-│  a:1  b:2  c:3       │◄──►│  d:4  e:5  f:6       │
-└──────────────────────┘    └──────────────────────┘
-         │                            │
-         └───────────┬────────────────┘
-                     │
-                     ▼
-              "d" promoted to parent
-```
+<img class="diagram diagram-md" src="../assets/diagrams/btree-leaf-split.svg"
+     alt="A full leaf holding a through e splits when f is inserted. The entries divide into two linked leaves holding a-b-c and d-e-f, and the key d is promoted to the parent as a separator">
 
 ```zig
 fn splitLeaf(self: *Self, frame: *BufferFrame, key: []const u8, value: []const u8) !void {
@@ -272,25 +195,8 @@ the configured page size after the new entry is included.
 
 When the root splits, we create a new root:
 
-```
-Before:
-          ┌─────────────┐
-          │  Root (full)│
-          └─────────────┘
-
-After root split:
-          ┌─────────────┐
-          │  New Root   │  ◄── New level!
-          │    [50]     │
-          └──────┬──────┘
-                ╱ ╲
-    ┌──────────┘   └──────────┐
-    ▼                         ▼
-┌─────────────┐      ┌─────────────┐
-│  Old Root   │      │  New Page   │
-│  (left)     │      │  (right)    │
-└─────────────┘      └─────────────┘
-```
+<img class="diagram diagram-sm" src="../assets/diagrams/btree-root-split.svg"
+     alt="Splitting the root creates a new root holding the separator key 50, with the old root as its left child and a newly allocated page as its right child. This is the only operation that increases the height of the tree">
 
 The tree grows at the top, not the bottom. All leaves stay at the same depth.
 
@@ -317,22 +223,8 @@ pub fn range(self: *Self, start: ?[]const u8, end: ?[]const u8) !Iterator {
 
 **Iterator walks the leaf chain:**
 
-```
-Start key: "dog"     End key: "hamster"
-
-   ┌─────────────────────────────────────┐
-   │           Internal nodes            │
-   └─────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│ cat│cow│    │──►│ dog│elk│fox│──►│goat│ham│    │
-└─────────────┘   └─────────────┘   └─────────────┘
-                    ▲                   ▲
-                    │ start             │ end
-                    └───────────────────┘
-                          scan range
-```
+<img class="diagram diagram-md" src="../assets/diagrams/btree-range-scan.svg"
+     alt="A range scan seeks once through the internal nodes to the leaf containing dog, then walks the leaf chain sideways through to the leaf containing goat and ham">
 
 No need to traverse internal nodes for each entry - just follow the links.
 
@@ -413,30 +305,8 @@ pages remain fixed-size and directly addressable.
 
 Insert "zebra" into a tree:
 
-```
-Step 1: Start at root
-┌─────────────────────────────────────────────┐
-│  Root (Internal)                            │
-│  [lion]           [rabbit]                  │
-│    ↓                 ↓                      │
-│  page 2           page 3                    │→ page 4 (rightmost)
-└─────────────────────────────────────────────┘
-"zebra" > "rabbit" → go right to page 4
-
-Step 2: Descend to leaf (page 4)
-┌─────────────────────────────────────────────┐
-│  Leaf (Page 4)                              │
-│  snake:v1  tiger:v2  wolf:v3                │
-│  [has space for zebra]                      │
-└─────────────────────────────────────────────┘
-
-Step 3: Insert into leaf
-┌─────────────────────────────────────────────┐
-│  Leaf (Page 4)                              │
-│  snake:v1  tiger:v2  wolf:v3  zebra:v4     │
-└─────────────────────────────────────────────┘
-Done! No splits needed.
-```
+<img class="diagram diagram-md" src="../assets/diagrams/btree-insert-walk.svg"
+     alt="Inserting the key zebra: the root routes right because zebra sorts after the separator rabbit, reaching page 4 which holds snake, tiger and wolf and has room, so zebra is written in place with no split">
 
 ## Performance Characteristics
 

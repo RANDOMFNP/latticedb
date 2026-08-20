@@ -1,0 +1,49 @@
+<svg
+ viewBox="0.00 0.00 455.00 141.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 136.5)">
+<title>btree_range_scan</title>
+<!-- internal -->
+<g id="node1" class="node">
+<title>internal</title>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M258.55,-132.5C258.55,-132.5 180.88,-132.5 180.88,-132.5 174.88,-132.5 168.88,-126.5 168.88,-120.5 168.88,-120.5 168.88,-108.5 168.88,-108.5 168.88,-102.5 174.88,-96.5 180.88,-96.5 180.88,-96.5 258.55,-96.5 258.55,-96.5 264.55,-96.5 270.55,-102.5 270.55,-108.5 270.55,-108.5 270.55,-120.5 270.55,-120.5 270.55,-126.5 264.55,-132.5 258.55,-132.5"/>
+<text xml:space="preserve" text-anchor="middle" x="219.71" y="-109.47" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Internal nodes</text>
+</g>
+<!-- l2 -->
+<g id="node3" class="node">
+<title>l2</title>
+<path fill="#eaf5ea" stroke="#2f7d32" stroke-width="1.2" d="M276.92,-36C276.92,-36 162.5,-36 162.5,-36 156.5,-36 150.5,-30 150.5,-24 150.5,-24 150.5,-12 150.5,-12 150.5,-6 156.5,0 162.5,0 162.5,0 276.92,0 276.92,0 282.92,0 288.92,-6 288.92,-12 288.92,-12 288.92,-24 288.92,-24 288.92,-30 282.92,-36 276.92,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="219.71" y="-13.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">dog │ elk │ fox</text>
+</g>
+<!-- internal&#45;&gt;l2 -->
+<g id="edge1" class="edge">
+<title>internal&#45;&gt;l2</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.1" d="M219.71,-96.17C219.71,-81.87 219.71,-61.37 219.71,-45.09"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="222.16,-45.21 219.71,-38.21 217.26,-45.21 222.16,-45.21"/>
+<text xml:space="preserve" text-anchor="middle" x="253.46" y="-61.2" font-family="Times,serif" font-size="14.00"> &#160;seek &quot;dog&quot;</text>
+</g>
+<!-- l1 -->
+<g id="node2" class="node">
+<title>l1</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M81.42,-36C81.42,-36 12,-36 12,-36 6,-36 0,-30 0,-24 0,-24 0,-12 0,-12 0,-6 6,0 12,0 12,0 81.42,0 81.42,0 87.42,0 93.42,-6 93.42,-12 93.42,-12 93.42,-24 93.42,-24 93.42,-30 87.42,-36 81.42,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="46.71" y="-13.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">cat │ cow</text>
+</g>
+<!-- l1&#45;&gt;l2 -->
+<g id="edge2" class="edge">
+<title>l1&#45;&gt;l2</title>
+<path fill="none" stroke="#c7d0da" stroke-width="1.1" d="M94.01,-18C109.9,-18 125.79,-18 141.68,-18"/>
+<polygon fill="#c7d0da" stroke="#c7d0da" stroke-width="1.1" points="141.32,-20.45 148.32,-18 141.32,-15.55 141.32,-20.45"/>
+</g>
+<!-- l3 -->
+<g id="node4" class="node">
+<title>l3</title>
+<path fill="#eaf5ea" stroke="#2f7d32" stroke-width="1.2" d="M435.17,-36C435.17,-36 358.25,-36 358.25,-36 352.25,-36 346.25,-30 346.25,-24 346.25,-24 346.25,-12 346.25,-12 346.25,-6 352.25,0 358.25,0 358.25,0 435.17,0 435.17,0 441.17,0 447.17,-6 447.17,-12 447.17,-12 447.17,-24 447.17,-24 447.17,-30 441.17,-36 435.17,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="396.71" y="-13.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">goat │ ham</text>
+</g>
+<!-- l2&#45;&gt;l3 -->
+<g id="edge3" class="edge">
+<title>l2&#45;&gt;l3</title>
+<path fill="none" stroke="#2f7d32" stroke-width="1.5" d="M289.2,-18C305.14,-18 321.09,-18 337.03,-18"/>
+<polygon fill="#2f7d32" stroke="#2f7d32" stroke-width="1.5" points="336.62,-20.45 343.62,-18 336.62,-15.55 336.62,-20.45"/>
+</g>
+</g>
+</svg>

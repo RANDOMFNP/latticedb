@@ -1,0 +1,57 @@
+<svg
+ viewBox="0.00 0.00 326.00 208.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 204.25)">
+<title>btree_leaf_split</title>
+<!-- before -->
+<g id="node1" class="node">
+<title>before</title>
+<path fill="#fdf0ea" stroke="#c2703f" stroke-width="1.2" d="M245.92,-200.25C245.92,-200.25 71.5,-200.25 71.5,-200.25 65.5,-200.25 59.5,-194.25 59.5,-188.25 59.5,-188.25 59.5,-176.25 59.5,-176.25 59.5,-170.25 65.5,-164.25 71.5,-164.25 71.5,-164.25 245.92,-164.25 245.92,-164.25 251.92,-164.25 257.92,-170.25 257.92,-176.25 257.92,-176.25 257.92,-188.25 257.92,-188.25 257.92,-194.25 251.92,-200.25 245.92,-200.25"/>
+<text xml:space="preserve" text-anchor="middle" x="158.71" y="-177.97" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">a:1 &#160;b:2 &#160;c:3 &#160;d:4 &#160;e:5</text>
+</g>
+<!-- after_l -->
+<g id="node2" class="node">
+<title>after_l</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M111.42,-113C111.42,-113 12,-113 12,-113 6,-113 0,-107 0,-101 0,-101 0,-89 0,-89 0,-83 6,-77 12,-77 12,-77 111.42,-77 111.42,-77 117.42,-77 123.42,-83 123.42,-89 123.42,-89 123.42,-101 123.42,-101 123.42,-107 117.42,-113 111.42,-113"/>
+<text xml:space="preserve" text-anchor="middle" x="61.71" y="-90.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">a:1 &#160;b:2 &#160;c:3</text>
+</g>
+<!-- before&#45;&gt;after_l -->
+<g id="edge1" class="edge">
+<title>before&#45;&gt;after_l</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M113.41,-163.82C103.56,-158.58 93.76,-152.08 85.96,-144.25 79.51,-137.77 74.46,-129.23 70.67,-121.13"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="72.97,-120.28 67.96,-114.81 68.47,-122.21 72.97,-120.28"/>
+<text xml:space="preserve" text-anchor="middle" x="152.34" y="-134.75" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280"> &#160;insert &quot;f:6&quot; — no room, split &#160;</text>
+</g>
+<!-- after_r -->
+<g id="node3" class="node">
+<title>after_r</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M306.42,-113C306.42,-113 207,-113 207,-113 201,-113 195,-107 195,-101 195,-101 195,-89 195,-89 195,-83 201,-77 207,-77 207,-77 306.42,-77 306.42,-77 312.42,-77 318.42,-83 318.42,-89 318.42,-89 318.42,-101 318.42,-101 318.42,-107 312.42,-113 306.42,-113"/>
+<text xml:space="preserve" text-anchor="middle" x="256.71" y="-90.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">d:4 &#160;e:5 &#160;f:6</text>
+</g>
+<!-- before&#45;&gt;after_r -->
+<g id="edge2" class="edge">
+<title>before&#45;&gt;after_r</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M196.1,-163.79C205.7,-158.32 215.59,-151.73 223.71,-144.25 231.03,-137.51 237.58,-128.86 242.88,-120.75"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="244.88,-122.18 246.5,-114.94 240.72,-119.59 244.88,-122.18"/>
+</g>
+<!-- after_l&#45;&gt;after_r -->
+<g id="edge3" class="edge">
+<title>after_l&#45;&gt;after_r</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.1" stroke-dasharray="5,2" d="M132.34,-95C150.28,-95 168.22,-95 186.16,-95"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="132.46,-92.55 125.45,-95 132.45,-97.45 132.46,-92.55"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="185.74,-97.45 192.74,-95 185.74,-92.55 185.74,-97.45"/>
+</g>
+<!-- promoted -->
+<g id="node4" class="node">
+<title>promoted</title>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M213.67,-36C213.67,-36 103.75,-36 103.75,-36 97.75,-36 91.75,-30 91.75,-24 91.75,-24 91.75,-12 91.75,-12 91.75,-6 97.75,0 103.75,0 103.75,0 213.67,0 213.67,0 219.67,0 225.67,-6 225.67,-12 225.67,-12 225.67,-24 225.67,-24 225.67,-30 219.67,-36 213.67,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="158.71" y="-13.55" font-family="Helvetica,Arial,sans-serif" font-size="11.00" fill="#1a1a1a">&quot;d&quot; promoted to parent</text>
+</g>
+<!-- after_l&#45;&gt;promoted -->
+<!-- after_r&#45;&gt;promoted -->
+<g id="edge5" class="edge">
+<title>after_r&#45;&gt;promoted</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.1" d="M233.98,-76.6C220.35,-66.17 202.87,-52.79 188.18,-41.56"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="190.03,-39.88 182.98,-37.57 187.05,-43.77 190.03,-39.88"/>
+</g>
+</g>
+</svg>

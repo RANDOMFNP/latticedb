@@ -1,0 +1,26 @@
+// A range scan descends once, then walks the leaf chain sideways.
+digraph btree_range_scan {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.4
+  ranksep=0.6
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=12
+        fontcolor="#1a1a1a" margin="0.18,0.10"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
+
+  internal [label="Internal nodes" fillcolor="#f6f8fa" color="#c7d0da"
+            fontname="Helvetica,Arial,sans-serif"]
+
+  l1 [label="cat │ cow"]
+  l2 [label="dog │ elk │ fox" fillcolor="#eaf5ea" color="#2f7d32"]
+  l3 [label="goat │ ham" fillcolor="#eaf5ea" color="#2f7d32"]
+
+  internal -> l2 [label="  seek \"dog\"" color="#4a90d9"]
+
+  { rank=same
+    l1 -> l2 [color="#c7d0da"]
+    l2 -> l3 [color="#2f7d32" penwidth=1.5]
+  }
+}

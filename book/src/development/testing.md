@@ -22,7 +22,7 @@ zig build graph-benchmark -- --quick       # Graph traversal benchmarks
 
 ## Test Structure
 
-```
+```text
 tests/
 ├── unit/           # Unit tests for individual modules
 ├── integration/    # End-to-end integration tests

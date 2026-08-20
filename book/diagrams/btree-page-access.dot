@@ -1,0 +1,37 @@
+// Why nodes are a lens over page bytes rather than deserialised structs.
+digraph btree_page_access {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.4
+  ranksep=0.45
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.20,0.12"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+
+  subgraph cluster_traditional {
+    label="Traditional"
+    fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
+    color="#dbe3ec" penwidth=1.1 style=rounded margin=14
+
+    t_in  [label="Page bytes"]
+    t_obj [label="Node struct\nkeys[] · values[] · children[]" fillcolor="#f6f8fa"]
+    t_out [label="Page bytes"]
+
+    t_in  -> t_obj [label="  deserialise"]
+    t_obj -> t_out [label="  serialise"]
+  }
+
+  subgraph cluster_lattice {
+    label="LatticeDB"
+    fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
+    color="#dbe3ec" penwidth=1.1 style=rounded margin=14
+
+    l_in  [label="Page bytes" fillcolor="#dbe9f8"]
+    l_out [label="Read and write at\ncalculated offsets" fillcolor="#dbe9f8"]
+
+    l_in -> l_out [label="  direct access" color="#4a90d9"]
+  }
+}

@@ -4,48 +4,8 @@ This section explains how LatticeDB's storage engine works, from the ground up. 
 
 ## The Stack
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Application                             │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   Transaction Manager                        │
-│              (ACID guarantees, isolation)                    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-┌───────────────────┐ ┌─────────────┐ ┌─────────────────────┐
-│      B+Tree       │ │     WAL     │ │    Checkpointer     │
-│  (ordered data)   │ │ (durability)│ │  (recovery bounds)  │
-└───────────────────┘ └─────────────┘ └─────────────────────┘
-              │               │               │
-              └───────────────┼───────────────┘
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Buffer Pool                             │
-│                (page caching in RAM)                         │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     Page Manager                             │
-│              (page allocation, checksums)                    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 Virtual File System                          │
-│                    (file I/O)                                │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Operating System                          │
-└─────────────────────────────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/engine-stack.svg"
+     alt="The engine stack from top to bottom: the application calls the transaction manager, which drives the B+Tree, write-ahead log and checkpointer; those share the buffer pool, which sits on the page manager, the virtual file system, and finally the operating system">
 
 ## Chapters
 
@@ -78,18 +38,8 @@ This section explains how LatticeDB's storage engine works, from the ground up. 
 
 We don't deserialize pages into objects. Instead, we read/write bytes directly in page buffers. This is "zero-copy" - no intermediate representations, no serialization overhead.
 
-```
-Traditional approach:           Our approach:
-
-Page bytes ──► Object ──►      Page bytes ──► Direct access
-              in memory                       via offsets
-                  │                               │
-                  ▼                               ▼
-              Modify                          Modify bytes
-                  │                               │
-                  ▼                               ▼
-Object ──► Serialize ──► Page   Already in page buffer!
-```
+<img class="diagram diagram-md" src="../assets/diagrams/zero-copy-pages.svg"
+     alt="Traditional access deserialises page bytes into an in-memory object, modifies it, and serialises back. LatticeDB modifies the page bytes in place through calculated offsets, with no intermediate object">
 
 ### Everything is Pages
 

@@ -4,30 +4,8 @@
 
 Lattice provides approximate nearest neighbor (ANN) search using the HNSW (Hierarchical Navigable Small World) algorithm. This enables semantic search over high-dimensional embedding vectors—a core requirement for AI/RAG applications.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Vector Search Stack                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────────┐                                           │
-│  │ EmbeddingClient │  Optional: HTTP calls to embedding APIs   │
-│  │   (optional)    │  Ollama, OpenAI, etc.                     │
-│  └────────┬────────┘                                           │
-│           │ []f32                                               │
-│           ▼                                                     │
-│  ┌─────────────────┐                                           │
-│  │   HnswIndex     │  Multi-layer graph for ANN search         │
-│  │                 │  O(log n) search complexity               │
-│  └────────┬────────┘                                           │
-│           │                                                     │
-│           ▼                                                     │
-│  ┌─────────────────┐                                           │
-│  │ VectorStorage   │  Page-based vector data storage           │
-│  │                 │  Integrates with BufferPool               │
-│  └─────────────────┘                                           │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+<img class="diagram diagram-sm" src="../assets/diagrams/vector-search-stack.svg"
+     alt="The vector search stack: an optional EmbeddingClient produces float32 vectors, the HnswIndex provides a multi-layer graph with logarithmic search, and VectorStorage persists vectors in pages backed by the buffer pool">
 
 ## Embedding Generation
 
@@ -127,14 +105,8 @@ HNSW (Hierarchical Navigable Small World) is a graph-based algorithm for approxi
 
 ### How HNSW Works
 
-```
-Layer 2:    [A] ─────────────────────── [D]
-             │                           │
-Layer 1:    [A] ──── [B] ──── [C] ──── [D] ──── [E]
-             │        │        │        │        │
-Layer 0:    [A]─[F]─[B]─[G]─[C]─[H]─[D]─[I]─[E]─[J]
-            (dense connections at layer 0)
-```
+<img class="diagram diagram-md" src="../assets/diagrams/hnsw-layers.svg"
+     alt="An HNSW index drawn as three horizontal layers. Layer 2 holds only nodes A and D with a single long-range link, layer 1 holds A through E, and layer 0 holds every vector densely connected. Dashed lines show the descent from each layer to the one below">
 
 - Upper layers have exponentially fewer nodes (sparse)
 - Search starts at top layer, greedily descends
@@ -206,21 +178,17 @@ For text embeddings from most models (OpenAI, Cohere, etc.), use `.cosine`.
 
 Vectors are stored in pages managed by the buffer pool, separate from the HNSW graph structure.
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│ Vector Page (4096 bytes)                                       │
-├────────────────────────────────────────────────────────────────┤
-│ Header (24 bytes)                                              │
-│   page_type: u8 = 0x04 (vector_data)                          │
-│   dimensions: u16                                              │
-│   vector_count: u16                                            │
-│   next_page: u32 (overflow chain)                             │
-├────────────────────────────────────────────────────────────────┤
-│ Slot 0: [vector_id: u64][f32 × dimensions]                    │
-│ Slot 1: [vector_id: u64][f32 × dimensions]                    │
-│ ...                                                            │
-└────────────────────────────────────────────────────────────────┘
-```
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 B | `page_type: u8` = `0x04` (vector data) |
+| 1–2 | 2 B | `dimensions: u16` |
+| 3–4 | 2 B | `vector_count: u16` |
+| 5–8 | 4 B | `next_page: u32` — overflow chain |
+| 9–23 | 15 B | Reserved (header is 24 bytes total) |
+| 24 → | variable | Slots, one per vector: `[vector_id: u64][f32 × dimensions]` |
+
+Pages are 4096 bytes, so a page holds `(4096 - 24) / (8 + 4 × dimensions)` vectors
+before spilling into the next page in the overflow chain.
 
 Vectors per page depends on dimensions:
 - 384-dim (1536 bytes): 2 vectors/page

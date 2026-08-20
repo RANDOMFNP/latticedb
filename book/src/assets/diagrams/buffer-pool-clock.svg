@@ -1,0 +1,70 @@
+<svg
+ viewBox="0.00 0.00 434.00 231.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 226.57)">
+<title>buffer_pool_clock</title>
+<!-- f1 -->
+<g id="node1" class="node">
+<title>f1</title>
+<path fill="#eaf5ea" stroke="#2f7d32" stroke-width="1.7" d="M239.46,-138.73C239.46,-138.73 193.17,-138.73 193.17,-138.73 187.17,-138.73 181.17,-132.73 181.17,-126.73 181.17,-126.73 181.17,-95.83 181.17,-95.83 181.17,-89.83 187.17,-83.83 193.17,-83.83 193.17,-83.83 239.46,-83.83 239.46,-83.83 245.46,-83.83 251.46,-89.83 251.46,-95.83 251.46,-95.83 251.46,-126.73 251.46,-126.73 251.46,-132.73 245.46,-138.73 239.46,-138.73"/>
+<text xml:space="preserve" text-anchor="start" x="192.69" y="-121.08" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">Frame 1</text>
+<text xml:space="preserve" text-anchor="start" x="192.69" y="-107.58" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">use 0</text>
+<text xml:space="preserve" text-anchor="start" x="192.69" y="-94.08" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">pin 0</text>
+</g>
+<!-- f2 -->
+<g id="node2" class="node">
+<title>f2</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.3" d="M148.87,-41.4C148.87,-41.4 102.58,-41.4 102.58,-41.4 96.58,-41.4 90.58,-35.4 90.58,-29.4 90.58,-29.4 90.58,-12 90.58,-12 90.58,-6 96.58,0 102.58,0 102.58,0 148.87,0 148.87,0 154.87,0 160.87,-6 160.87,-12 160.87,-12 160.87,-29.4 160.87,-29.4 160.87,-35.4 154.87,-41.4 148.87,-41.4"/>
+<text xml:space="preserve" text-anchor="start" x="102.1" y="-23.75" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">Frame 2</text>
+<text xml:space="preserve" text-anchor="start" x="102.1" y="-10.25" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">use 0</text>
+</g>
+<!-- f1&#45;&gt;f2 -->
+<g id="edge1" class="edge">
+<title>f1&#45;&gt;f2</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.2" d="M188.15,-83.12C176.93,-71.9 164.07,-59.04 152.95,-47.92"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.2" points="154.93,-46.44 148.25,-43.22 151.47,-49.9 154.93,-46.44"/>
+</g>
+<!-- f3 -->
+<g id="node3" class="node">
+<title>f3</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.3" d="M58.29,-131.98C58.29,-131.98 12,-131.98 12,-131.98 6,-131.98 0,-125.98 0,-119.98 0,-119.98 0,-102.58 0,-102.58 0,-96.58 6,-90.58 12,-90.58 12,-90.58 58.29,-90.58 58.29,-90.58 64.29,-90.58 70.29,-96.58 70.29,-102.58 70.29,-102.58 70.29,-119.98 70.29,-119.98 70.29,-125.98 64.29,-131.98 58.29,-131.98"/>
+<text xml:space="preserve" text-anchor="start" x="11.52" y="-114.33" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">Frame 3</text>
+<text xml:space="preserve" text-anchor="start" x="11.52" y="-100.83" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">use 1</text>
+</g>
+<!-- f2&#45;&gt;f3 -->
+<g id="edge2" class="edge">
+<title>f2&#45;&gt;f3</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.2" d="M104.72,-41.71C92.12,-54.31 75.96,-70.47 62.39,-84.04"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.2" points="60.86,-82.11 57.64,-88.79 64.32,-85.57 60.86,-82.11"/>
+</g>
+<!-- f4 -->
+<g id="node4" class="node">
+<title>f4</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.3" d="M148.87,-222.57C148.87,-222.57 102.58,-222.57 102.58,-222.57 96.58,-222.57 90.58,-216.57 90.58,-210.57 90.58,-210.57 90.58,-193.17 90.58,-193.17 90.58,-187.17 96.58,-181.17 102.58,-181.17 102.58,-181.17 148.87,-181.17 148.87,-181.17 154.87,-181.17 160.87,-187.17 160.87,-193.17 160.87,-193.17 160.87,-210.57 160.87,-210.57 160.87,-216.57 154.87,-222.57 148.87,-222.57"/>
+<text xml:space="preserve" text-anchor="start" x="102.1" y="-204.92" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">Frame 4</text>
+<text xml:space="preserve" text-anchor="start" x="102.1" y="-191.42" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">use 2</text>
+</g>
+<!-- f3&#45;&gt;f4 -->
+<g id="edge3" class="edge">
+<title>f3&#45;&gt;f4</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.2" d="M56.15,-132.29C68.75,-144.89 84.91,-161.05 98.49,-174.63"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.2" points="96.55,-176.16 103.24,-179.38 100.02,-172.69 96.55,-176.16"/>
+</g>
+<!-- f4&#45;&gt;f1 -->
+<g id="edge4" class="edge">
+<title>f4&#45;&gt;f1</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.2" d="M146.74,-180.86C157.24,-170.36 170.22,-157.38 182.11,-145.49"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.2" points="183.71,-147.35 186.93,-140.67 180.24,-143.89 183.71,-147.35"/>
+</g>
+<!-- hand -->
+<g id="node5" class="node">
+<title>hand</title>
+<text xml:space="preserve" text-anchor="middle" x="357.21" y="-106.83" font-family="Helvetica,Arial,sans-serif" font-size="11.00" fill="#2f7d32">clock hand — evict here</text>
+</g>
+<!-- hand&#45;&gt;f1 -->
+<g id="edge5" class="edge">
+<title>hand&#45;&gt;f1</title>
+<path fill="none" stroke="#2f7d32" stroke-width="1.3" stroke-dasharray="5,2" d="M288.41,-111.28C279.08,-111.28 269.71,-111.28 260.96,-111.28"/>
+<polygon fill="#2f7d32" stroke="#2f7d32" stroke-width="1.3" points="261.05,-108.83 254.05,-111.28 261.05,-113.73 261.05,-108.83"/>
+</g>
+</g>
+</svg>

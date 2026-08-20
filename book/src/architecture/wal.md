@@ -27,15 +27,8 @@ This is the **write-ahead** rule: log first, then data.
 
 The WAL relies on a key property: **sequential append is much safer than random writes**.
 
-```
-Random writes (data pages):          Sequential append (WAL):
-┌─────┐ ┌─────┐ ┌─────┐              ┌─────────────────────────┐
-│ P1  │ │ P2  │ │ P3  │              │ Log Log Log Log ...     │
-└─────┘ └─────┘ └─────┘              └─────────────────────────┘
-   ↑       ↑       ↑                                         ↑
-   │       │       │                                         │
- write   write   write                              single write position
-```
+<img class="diagram diagram-md" src="../assets/diagrams/wal-sequential-append.svg"
+     alt="Writing data pages means three separate seeks to scattered offsets. Writing the WAL means appending at a single position that only ever moves forward">
 
 With random writes, the disk head jumps around. A crash can leave any combination of pages in inconsistent states.
 
@@ -60,48 +53,35 @@ This is expensive (milliseconds, not microseconds), so we batch multiple records
 
 ## WAL Structure
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                    WAL File Layout                          │
-├────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ Header (4KB)                                         │   │
-│  │  • magic: 0x574C4F47 ("WLOG")                        │   │
-│  │  • database_uuid: links WAL to its database          │   │
-│  │  • frame_count: how many frames written              │   │
-│  │  • checkpoint_lsn: recovery starting point           │   │
-│  │  • checksum: detects corruption                      │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ Frame 0 (4KB)                                        │   │
-│  │  ┌───────────────────────────────────────────────┐   │   │
-│  │  │ Frame Header (32 bytes)                        │   │   │
-│  │  │  • frame_number: 0                             │   │   │
-│  │  │  • record_count: 3                             │   │   │
-│  │  │  • data_size: 156                              │   │   │
-│  │  │  • checksum: CRC of data area                  │   │   │
-│  │  └───────────────────────────────────────────────┘   │   │
-│  │  ┌───────────────────────────────────────────────┐   │   │
-│  │  │ Record: TXN_BEGIN (txn=1, lsn=1)               │   │   │
-│  │  └───────────────────────────────────────────────┘   │   │
-│  │  ┌───────────────────────────────────────────────┐   │   │
-│  │  │ Record: INSERT (txn=1, lsn=2, payload=...)     │   │   │
-│  │  └───────────────────────────────────────────────┘   │   │
-│  │  ┌───────────────────────────────────────────────┐   │   │
-│  │  │ Record: TXN_COMMIT (txn=1, lsn=3)              │   │   │
-│  │  └───────────────────────────────────────────────┘   │   │
-│  │                     ... unused space ...              │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ Frame 1 (4KB)                                        │   │
-│  │   ...                                                │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-└────────────────────────────────────────────────────────────┘
-```
+The WAL file is a 4 KB header followed by a sequence of 4 KB frames.
+
+**WAL header (4 KB)**
+
+| Field | Purpose |
+|-------|---------|
+| `magic` | `0x574C4F47` (`"WLOG"`) |
+| `database_uuid` | Binds this WAL to one database file |
+| `frame_count` | How many frames have been written |
+| `checkpoint_lsn` | Where recovery starts replaying |
+| `checksum` | Detects header corruption |
+
+**Frame header (32 bytes, at the start of every 4 KB frame)**
+
+| Field | Purpose |
+|-------|---------|
+| `frame_number` | Position of this frame in the file |
+| `record_count` | How many records the frame carries |
+| `data_size` | Bytes of the frame actually used |
+| `checksum` | CRC32 over the frame's data area |
+
+The remainder of each frame holds records back to back, then unused space. A frame
+carrying a single-statement transaction might look like this:
+
+| LSN | Record | Transaction |
+|----:|--------|------------:|
+| 1 | `TXN_BEGIN` | 1 |
+| 2 | `INSERT` (with payload) | 1 |
+| 3 | `TXN_COMMIT` | 1 |
 
 ## LSN: The Universal Clock
 
@@ -126,13 +106,16 @@ LSN serves multiple purposes:
 
 Each record stores `prev_lsn` - the previous LSN **for the same transaction**:
 
-```
-LSN 1: TXN_BEGIN (txn=1, prev_lsn=0)
-LSN 2: INSERT (txn=1, prev_lsn=1)      ←─┐
-LSN 3: INSERT (txn=2, prev_lsn=0)         │
-LSN 4: UPDATE (txn=1, prev_lsn=2)      ───┘
-LSN 5: TXN_COMMIT (txn=1, prev_lsn=4)
-```
+| LSN | Record | Transaction | `prev_lsn` |
+|----:|--------|------------:|-----------:|
+| 1 | `TXN_BEGIN` | 1 | 0 |
+| 2 | `INSERT` | 1 | 1 |
+| 3 | `INSERT` | 2 | 0 |
+| 4 | `UPDATE` | 1 | 2 |
+| 5 | `TXN_COMMIT` | 1 | 4 |
+
+Following `prev_lsn` from LSN 5 walks transaction 1 backwards — 5 → 4 → 2 → 1 —
+skipping LSN 3, which belongs to transaction 2.
 
 This creates a **backward chain** for each transaction:
 
@@ -145,43 +128,8 @@ Why? **Rollback**. To abort transaction 1, follow the chain backward, undoing ea
 
 ## Write Flow
 
-```
-                    Application
-                        │
-                        ▼
-              ┌─────────────────┐
-              │   Transaction   │
-              │   INSERT(k,v)   │
-              └────────┬────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │   WAL Manager   │
-              │                 │
-              │  1. Assign LSN  │
-              │  2. Build record│
-              │  3. Append to   │
-              │     frame buffer│
-              └────────┬────────┘
-                       │
-          ┌────────────┴────────────┐
-          │                         │
-          ▼                         ▼
-   Frame buffer full?          COMMIT requested?
-          │                         │
-          ▼                         ▼
-   ┌─────────────┐           ┌─────────────┐
-   │ Flush frame │           │ Flush frame │
-   │ to disk     │           │ + fsync     │
-   └─────────────┘           └─────────────┘
-                                    │
-                                    ▼
-                            ┌─────────────┐
-                            │ Now safe to │
-                            │ return to   │
-                            │ application │
-                            └─────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/wal-write-flow.svg"
+     alt="A write flows from the application to a transaction, then to the WAL manager which assigns an LSN, builds a record and appends it to the frame buffer. A full buffer flushes the frame; a commit flushes the frame and calls fsync, after which it is safe to return to the application">
 
 The key insight: we buffer multiple records in memory, only hitting disk when:
 1. The frame buffer is full (4KB of records accumulated)
@@ -215,22 +163,21 @@ On startup after a crash, we need to:
 2. **Redo committed transactions** - Replay all operations from committed transactions
 3. **Undo uncommitted transactions** - Roll back any transaction without a commit record
 
-```
-                     WAL Contents
-    ┌───────────────────────────────────────────┐
-    │ LSN 1: TXN_BEGIN (txn 1)                  │
-    │ LSN 2: INSERT x=1 (txn 1)                 │
-    │ LSN 3: TXN_BEGIN (txn 2)                  │
-    │ LSN 4: INSERT y=2 (txn 2)                 │
-    │ LSN 5: TXN_COMMIT (txn 1)    ← committed  │
-    │ LSN 6: INSERT z=3 (txn 2)                 │
-    │ ─── CRASH HERE ───                        │
-    └───────────────────────────────────────────┘
+| LSN | Record | Transaction |
+|----:|--------|------------:|
+| 1 | `TXN_BEGIN` | 1 |
+| 2 | `INSERT x=1` | 1 |
+| 3 | `TXN_BEGIN` | 2 |
+| 4 | `INSERT y=2` | 2 |
+| 5 | `TXN_COMMIT` | 1 |
+| 6 | `INSERT z=3` | 2 |
 
-    Recovery:
-    • Txn 1: Has COMMIT → REDO (x=1 is permanent)
-    • Txn 2: No COMMIT  → UNDO (y=2 and z=3 are rolled back)
-```
+The process crashes after LSN 6.
+
+| Transaction | Has `TXN_COMMIT`? | Recovery action |
+|------------:|-------------------|-----------------|
+| 1 | Yes | Redo — `x=1` is permanent |
+| 2 | No | Undo — `y=2` and `z=3` are rolled back |
 
 ## Why Frames?
 
@@ -259,20 +206,19 @@ format used for normal records.
 
 We use CRC32 to detect corruption:
 
-```
-Frame on disk:
-┌──────────────────────────────────────────┐
-│ Header: checksum = 0xABCD1234            │
-├──────────────────────────────────────────┤
-│ Data: [record1][record2][record3]        │
-└──────────────────────────────────────────┘
+Every frame stores a CRC32 of its data area in its header:
 
-On read:
-1. Read frame
-2. Compute CRC32(data)
-3. Compare with stored checksum
-4. If mismatch → corruption detected, stop replay
-```
+| Frame region | Contents |
+|--------------|----------|
+| Header | `checksum = 0xABCD1234` |
+| Data | `[record 1][record 2][record 3]` |
+
+On read the checksum is recomputed and compared:
+
+1. Read the frame.
+2. Compute `CRC32(data)`.
+3. Compare against the stored checksum.
+4. On mismatch, corruption is detected and replay stops.
 
 This catches:
 - Torn writes (partial frame written)
@@ -283,12 +229,8 @@ This catches:
 
 The WAL header stores the database file's UUID:
 
-```
-Database file header:      WAL header:
-┌──────────────────┐      ┌──────────────────┐
-│ uuid: ABC123...  │ ←──→ │ uuid: ABC123...  │
-└──────────────────┘      └──────────────────┘
-```
+<img class="diagram diagram-sm" src="../assets/diagrams/wal-uuid-binding.svg"
+     alt="The database file header and the WAL header both carry the UUID ABC123, and the two must match before the WAL is replayed">
 
 This prevents accidentally using database A's WAL with database B. The UUID is generated randomly when the database is created.
 

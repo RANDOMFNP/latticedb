@@ -1,0 +1,17 @@
+// A posting list longer than one page chains into overflow pages.
+digraph fts_posting_overflow {
+  bgcolor="transparent"
+  rankdir=LR
+  nodesep=0.6
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=11
+        fontcolor="#1a1a1a" margin="0.20,0.13"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
+
+  p42 [label="Page 42 (first)\lnext_page = 87\lnum_entries = 200\l\lentries 1–200\l"]
+  p87 [label="Page 87 (overflow)\lnext_page = 0\lnum_entries = 50\l\lentries 201–250\l"
+       fillcolor="#f6f8fa" color="#c7d0da"]
+
+  p42 -> p87 [color="#4a90d9"]
+}

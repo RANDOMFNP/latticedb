@@ -1,0 +1,62 @@
+<svg
+ viewBox="0.00 0.00 473.00 123.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 119)">
+<title>btree_structure</title>
+<!-- root -->
+<g id="node1" class="node">
+<title>root</title>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M300.92,-115C300.92,-115 164,-115 164,-115 158,-115 152,-109 152,-103 152,-103 152,-91 152,-91 152,-85 158,-79 164,-79 164,-79 300.92,-79 300.92,-79 306.92,-79 312.92,-85 312.92,-91 312.92,-91 312.92,-103 312.92,-103 312.92,-109 306.92,-115 300.92,-115"/>
+<text xml:space="preserve" text-anchor="middle" x="232.46" y="-92.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">[30] &#160;&#160;[60] &#160;&#160;[90]</text>
+</g>
+<!-- leaf1 -->
+<g id="node2" class="node">
+<title>leaf1</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M118.92,-36C118.92,-36 12,-36 12,-36 6,-36 0,-30 0,-24 0,-24 0,-12 0,-12 0,-6 6,0 12,0 12,0 118.92,0 118.92,0 124.92,0 130.92,-6 130.92,-12 130.92,-12 130.92,-24 130.92,-24 130.92,-30 124.92,-36 118.92,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="65.46" y="-13.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">10:val &#160;20:val</text>
+</g>
+<!-- root&#45;&gt;leaf1 -->
+<g id="edge1" class="edge">
+<title>root&#45;&gt;leaf1</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M194.57,-78.53C169.78,-67.1 137.26,-52.1 111.05,-40.02"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="112.39,-37.94 105.01,-37.23 110.34,-42.39 112.39,-37.94"/>
+</g>
+<!-- leaf2 -->
+<g id="node3" class="node">
+<title>leaf2</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M285.92,-36C285.92,-36 179,-36 179,-36 173,-36 167,-30 167,-24 167,-24 167,-12 167,-12 167,-6 173,0 179,0 179,0 285.92,0 285.92,0 291.92,0 297.92,-6 297.92,-12 297.92,-12 297.92,-24 297.92,-24 297.92,-30 291.92,-36 285.92,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="232.46" y="-13.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">30:val &#160;50:val</text>
+</g>
+<!-- root&#45;&gt;leaf2 -->
+<g id="edge2" class="edge">
+<title>root&#45;&gt;leaf2</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M232.46,-78.53C232.46,-68.58 232.46,-55.94 232.46,-44.87"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="234.91,-45.07 232.46,-38.07 230.01,-45.07 234.91,-45.07"/>
+</g>
+<!-- leaf3 -->
+<g id="node4" class="node">
+<title>leaf3</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M452.92,-36C452.92,-36 346,-36 346,-36 340,-36 334,-30 334,-24 334,-24 334,-12 334,-12 334,-6 340,0 346,0 346,0 452.92,0 452.92,0 458.92,0 464.92,-6 464.92,-12 464.92,-12 464.92,-24 464.92,-24 464.92,-30 458.92,-36 452.92,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="399.46" y="-13.72" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">60:val &#160;80:val</text>
+</g>
+<!-- root&#45;&gt;leaf3 -->
+<g id="edge3" class="edge">
+<title>root&#45;&gt;leaf3</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M270.35,-78.53C295.14,-67.1 327.66,-52.1 353.87,-40.02"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="354.58,-42.39 359.91,-37.23 352.53,-37.94 354.58,-42.39"/>
+</g>
+<!-- leaf1&#45;&gt;leaf2 -->
+<g id="edge4" class="edge">
+<title>leaf1&#45;&gt;leaf2</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.1" stroke-dasharray="5,2" d="M139.86,-18C145.97,-18 152.07,-18 158.17,-18"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="140.01,-15.55 133.01,-18 140.01,-20.45 140.01,-15.55"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="157.83,-20.45 164.83,-18 157.83,-15.55 157.83,-20.45"/>
+</g>
+<!-- leaf2&#45;&gt;leaf3 -->
+<g id="edge5" class="edge">
+<title>leaf2&#45;&gt;leaf3</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.1" stroke-dasharray="5,2" d="M306.86,-18C312.97,-18 319.07,-18 325.17,-18"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="307.01,-15.55 300.01,-18 307.01,-20.45 307.01,-15.55"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.1" points="324.83,-20.45 331.83,-18 324.83,-15.55 324.83,-20.45"/>
+</g>
+</g>
+</svg>

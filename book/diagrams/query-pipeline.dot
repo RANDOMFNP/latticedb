@@ -1,0 +1,32 @@
+// A Cypher string becomes result rows through five stages.
+digraph query_pipeline {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.3
+  ranksep=0.34
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.24,0.13" width=2.0]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+
+  q [label="MATCH (p:Person) WHERE p.age > 30\nRETURN p.name LIMIT 10"
+     fillcolor="#f6f8fa" color="#c7d0da"
+     fontname="Menlo,Consolas,monospace" fontsize=11]
+
+  lexer    [label="Lexer"]
+  parser   [label="Parser"]
+  semantic [label="Semantic Analyzer"]
+  planner  [label="Planner"]
+  executor [label="Executor" fillcolor="#dbe9f8"]
+
+  q        -> lexer
+  lexer    -> parser   [label="  tokens"]
+  parser   -> semantic [label="  AST"]
+  semantic -> planner  [label="  validated AST + variable bindings"]
+  planner  -> executor [label="  operator tree"]
+
+  rows [label="Result rows" fillcolor="#eaf5ea" color="#2f7d32"]
+  executor -> rows [color="#2f7d32"]
+}

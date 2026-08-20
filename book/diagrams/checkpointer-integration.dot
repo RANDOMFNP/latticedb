@@ -1,0 +1,26 @@
+// The checkpointer coordinates three subsystems; it owns none of them.
+digraph checkpointer_integration {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.4
+  ranksep=0.5
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.22,0.13"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
+
+  ckpt [label="Checkpointer" fillcolor="#dbe9f8" width=2.4]
+
+  pool [label="BufferPool\lframes\ldirty tracking\llatches\l"
+        fontname="Menlo,Consolas,monospace" fontsize=11]
+  pgm  [label="PageManager\lwritePage\lsync\l"
+        fontname="Menlo,Consolas,monospace" fontsize=11]
+  wal  [label="WalManager\lappend\lsync\lsetLsn\l"
+        fontname="Menlo,Consolas,monospace" fontsize=11]
+
+  ckpt -> pool
+  ckpt -> pgm
+  ckpt -> wal
+  { rank=same; pool; pgm; wal }
+}

@@ -1,0 +1,36 @@
+// Without fsync a write can sit in an OS buffer and be lost on power failure.
+digraph fsync_durability {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.4
+  ranksep=0.5
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.22,0.12" width=1.9]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+
+  subgraph cluster_without {
+    label="write() only"
+    fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
+    color="#dbe3ec" penwidth=1.1 style=rounded margin=14
+    w1 [label="Application"]
+    w2 [label="OS buffer (RAM)\ndata sits here" fillcolor="#fdf0ea" color="#c2703f"]
+    w3 [label="Power failure\nloses it" fillcolor="#fbe9e7" color="#b4382c"
+        style="filled,rounded,dashed"]
+    w1 -> w2 [label="  write()"]
+    w2 -> w3 [color="#b4382c" style=dashed]
+  }
+
+  subgraph cluster_with {
+    label="write() + fsync()"
+    fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
+    color="#dbe3ec" penwidth=1.1 style=rounded margin=14
+    f1 [label="Application"]
+    f2 [label="OS buffer (empty)" fillcolor="#f6f8fa" color="#c7d0da"]
+    f3 [label="Disk (persistent)\ndata is safe" fillcolor="#eaf5ea" color="#2f7d32"]
+    f1 -> f2 [label="  write()"]
+    f2 -> f3 [label="  fsync()" color="#2f7d32"]
+  }
+}

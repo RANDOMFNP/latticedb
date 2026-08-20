@@ -1,0 +1,37 @@
+// The layered engine: each tier depends only on the tier beneath it.
+digraph engine_stack {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.35
+  ranksep=0.45
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.24,0.13" width=2.4]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
+
+  app  [label="Application" fillcolor="#f6f8fa" color="#c7d0da" width=4.6]
+  txn  [label="Transaction Manager\nACID guarantees, isolation" fillcolor="#dbe9f8" width=4.6]
+
+  btree [label="B+Tree\nordered data"]
+  wal   [label="WAL\ndurability"]
+  ckpt  [label="Checkpointer\nrecovery bounds"]
+
+  pool [label="Buffer Pool\npage caching in RAM" width=4.6]
+  pgm  [label="Page Manager\nallocation, checksums" width=4.6]
+  vfs  [label="Virtual File System\nfile I/O" width=4.6]
+  os   [label="Operating System" fillcolor="#f6f8fa" color="#c7d0da" width=4.6]
+
+  app -> txn
+  txn -> btree
+  txn -> wal
+  txn -> ckpt
+  btree -> pool
+  wal   -> pool
+  ckpt  -> pool
+  pool -> pgm
+  pgm  -> vfs
+  vfs  -> os
+
+  { rank=same; btree; wal; ckpt }
+}

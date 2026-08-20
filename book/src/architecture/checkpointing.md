@@ -7,72 +7,17 @@ Without checkpointing, two bad things happen:
 1. **WAL grows forever** - Every transaction appends records, file gets huge
 2. **Recovery takes forever** - After crash, must replay entire WAL from the beginning
 
-```
-After 1 year of operation:
-
-WAL: [millions of records from day 1 ... to today]
-      ◄──────────────────────────────────────────►
-              Recovery replays ALL of this
-              Could take hours!
-```
+After a year of operation the WAL holds millions of records stretching back to day
+one, and recovery has to replay every one of them. Without checkpoints, startup time
+grows without bound.
 
 ## The Solution
 
 A checkpoint says: "Everything up to this point is safely on disk in the main database file. We don't need the old WAL records anymore."
 
-```
-Before checkpoint:
-┌─────────────────────────────────────────────────────────┐
-│                     Buffer Pool (RAM)                    │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐        │
-│  │ Page 5  │ │ Page 12 │ │ Page 3  │ │ Page 8  │        │
-│  │ DIRTY   │ │ DIRTY   │ │ clean   │ │ DIRTY   │        │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘        │
-└─────────────────────────────────────────────────────────┘
-                        │
-                        │ Changes only in RAM!
-                        │ If power fails, they're lost
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│                  Database File (Disk)                    │
-│               [old versions of pages]                    │
-└─────────────────────────────────────────────────────────┘
+<img class="diagram diagram-md" src="../assets/diagrams/checkpoint-before-after.svg"
+     alt="Before a checkpoint, pages 5, 12 and 8 are dirty in the buffer pool, the database file holds old versions, and recovery needs every WAL record. After a checkpoint, all four pages are clean, the database file holds current versions, and replay starts at checkpoint_lsn">
 
-┌─────────────────────────────────────────────────────────┐
-│                      WAL (Disk)                          │
-│  [record][record][record][record][record][record]...     │
-│  ◄──────────────────────────────────────────────────►   │
-│        Recovery needs ALL of these                       │
-└─────────────────────────────────────────────────────────┘
-```
-
-```
-After checkpoint:
-┌─────────────────────────────────────────────────────────┐
-│                     Buffer Pool (RAM)                    │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐        │
-│  │ Page 5  │ │ Page 12 │ │ Page 3  │ │ Page 8  │        │
-│  │ clean   │ │ clean   │ │ clean   │ │ clean   │        │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘        │
-└─────────────────────────────────────────────────────────┘
-         │           │                       │
-         │           │     FLUSHED!          │
-         ▼           ▼                       ▼
-┌─────────────────────────────────────────────────────────┐
-│                  Database File (Disk)                    │
-│               [current versions of pages]                │
-└─────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────┐
-│                      WAL (Disk)                          │
-│  [old records...] │ CHECKPOINT │ [new records...]        │
-│                   ▲                                      │
-│            checkpoint_lsn                                │
-│                   │                                      │
-│     Recovery starts HERE ─────►                          │
-│     (old records ignored)                                │
-└─────────────────────────────────────────────────────────┘
-```
 
 ## How It Works Step by Step
 
@@ -183,40 +128,14 @@ Requires: No active readers (they might be reading old WAL frames).
 
 Consider what happens if we crash during checkpointing:
 
-```
-Crash scenario 1: After BEGIN, before any flushes
-─────────────────────────────────────────────────
-WAL: [...records...][CHECKPOINT_BEGIN]
-                                     ▲
-                                   crash
+| Scenario | What is in the WAL | State of the database file | What recovery does |
+|----------|--------------------|----------------------------|--------------------|
+| Crash after `CHECKPOINT_BEGIN`, before any flush | `BEGIN` with no `END` | Unchanged | Sees the incomplete checkpoint, ignores it, replays from the previous `checkpoint_lsn` |
+| Crash after some flushes, before `CHECKPOINT_END` | `BEGIN` with no `END` | Some pages updated, some not | Sees the incomplete checkpoint and replays from the previous `checkpoint_lsn`; replay overwrites the partially flushed pages with correct data |
+| Crash after `CHECKPOINT_END` | `BEGIN` and `END` | Fully flushed | Sees a complete checkpoint and replays from the new `checkpoint_lsn` |
 
-Recovery: Sees incomplete checkpoint (BEGIN but no END).
-          Ignores it, replays from previous checkpoint_lsn.
-          Safe!
-
-Crash scenario 2: After some flushes, before END
-─────────────────────────────────────────────────
-WAL: [...records...][CHECKPOINT_BEGIN]
-                                     ▲
-                                   crash
-Database file: Has SOME pages flushed, but not all
-
-Recovery: Sees incomplete checkpoint.
-          Some pages are updated, some aren't.
-          Replays WAL from previous checkpoint_lsn.
-          WAL replay overwrites pages with correct data.
-          Safe!
-
-Crash scenario 3: After END
-───────────────────────────
-WAL: [...records...][CHECKPOINT_BEGIN][CHECKPOINT_END]
-                                                     ▲
-                                                   crash
-
-Recovery: Sees complete checkpoint.
-          Starts replay from checkpoint_lsn.
-          Fast recovery!
-```
+All three are safe. The checkpoint is only honoured once `CHECKPOINT_END` is on disk,
+so a torn checkpoint costs replay time but never correctness.
 
 ## Statistics
 
@@ -253,21 +172,8 @@ Common strategies:
 
 ## Integration
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Checkpointer                                  │
-│                         │                                        │
-│         ┌───────────────┼───────────────┐                       │
-│         ▼               ▼               ▼                       │
-│   ┌──────────┐   ┌──────────┐   ┌──────────┐                   │
-│   │BufferPool│   │PageManager│   │WalManager│                   │
-│   │          │   │          │   │          │                   │
-│   │• frames  │   │• writePage│   │• append  │                   │
-│   │• dirty   │   │• sync     │   │• sync    │                   │
-│   │• latches │   │          │   │• setLsn  │                   │
-│   └──────────┘   └──────────┘   └──────────┘                   │
-└─────────────────────────────────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/checkpointer-integration.svg"
+     alt="The checkpointer coordinates three subsystems: BufferPool for frames, dirty tracking and latches; PageManager for writePage and sync; and WalManager for append, sync and setLsn">
 
 The Checkpointer coordinates between:
 - **BufferPool**: Knows which pages are dirty

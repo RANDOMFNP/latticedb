@@ -10,23 +10,8 @@ The Virtual File System is an abstraction layer over file I/O operations. Instea
 
 With a VFS, we can create an in-memory implementation for testing:
 
-```
-Production:                     Testing:
-
-┌─────────────┐                ┌─────────────┐
-│   B+Tree    │                │   B+Tree    │
-└──────┬──────┘                └──────┬──────┘
-       │                              │
-       ▼                              ▼
-┌─────────────┐                ┌─────────────┐
-│  PosixVfs   │                │  MemoryVfs  │
-└──────┬──────┘                └──────┬──────┘
-       │                              │
-       ▼                              ▼
-┌─────────────┐                ┌─────────────┐
-│  Disk I/O   │                │  HashMap    │
-└─────────────┘                └─────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/vfs-implementations.svg"
+     alt="The same B+Tree runs over two VFS implementations: PosixVfs backed by disk I/O in production, and MemoryVfs backed by a hash map in tests">
 
 Tests run instantly because there's no actual disk I/O.
 
@@ -140,26 +125,8 @@ try file.sync();
 
 This forces all pending writes to physical storage. Without it, data might sit in OS buffers and be lost on power failure.
 
-```
-Application writes:          After fsync:
-
-┌─────────────┐              ┌─────────────┐
-│ Application │              │ Application │
-└──────┬──────┘              └─────────────┘
-       │ write()
-       ▼
-┌─────────────┐              ┌─────────────┐
-│  OS Buffer  │              │  OS Buffer  │
-│  (in RAM)   │ ◄── Data     │   (empty)   │
-└─────────────┘     sits     └──────┬──────┘
-       ╳           here!            │ fsync forces
-   Power                            │ write to disk
-   failure                          ▼
-   loses it!             ┌─────────────────────┐
-                         │ Disk (persistent)    │
-                         │ Data is SAFE         │
-                         └─────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fsync-durability.svg"
+     alt="With write() alone, data sits in an OS buffer in RAM and a power failure loses it. With write() followed by fsync(), the buffer is flushed and the data reaches persistent disk">
 
 ## The POSIX Implementation
 

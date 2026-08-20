@@ -8,17 +8,8 @@ Full-text search allows you to find documents containing specific words or phras
 
 The FTS system consists of five components:
 
-```
-┌─────────────┐     ┌────────────┐     ┌──────────────┐     ┌─────────┐
-│  Tokenizer  │ ──► │ Dictionary │ ──► │ Posting List │ ──► │ Scorer  │
-│             │     │  (B+Tree)  │     │   (Pages)    │     │ (BM25)  │
-└─────────────┘     └────────────┘     └──────────────┘     └─────────┘
-      │                   │                   │                  │
-      ▼                   ▼                   ▼                  ▼
- "hello world"      "hello" → 1        doc_ids with         ranked
-  → ["hello",       "world" → 2        term frequencies     results
-     "world"]
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fts-pipeline.svg"
+     alt="The full-text search pipeline: the tokenizer turns a string into tokens, the dictionary B+Tree maps each token to a token id, the posting list pages hold document ids with term frequencies, and the BM25 scorer produces ranked results">
 
 ## 1. Tokenizer
 
@@ -40,42 +31,8 @@ Notice "The", "the", and "over" are missing—they're **stop words**.
 
 ### How It Works
 
-```
-Input: "Hello, World! This is a TEST."
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 1. Scan for word boundaries         │
-│    Split on non-alphanumeric chars  │
-│    "Hello" "World" "This" "is" "a" "TEST"
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 2. Apply length filter              │
-│    min_length=2, max_length=64      │
-│    "Hello" "World" "This" "is" "TEST"
-│    ("a" removed - too short)        │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 3. Normalize to lowercase           │
-│    "hello" "world" "this" "is" "test"
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 4. Filter stop words                │
-│    "hello" "world" "test"           │
-│    ("this", "is" removed)           │
-└─────────────────────────────────────┘
-        │
-        ▼
-Output: [Token{text="hello", position=0},
-         Token{text="world", position=1},
-         Token{text="test",  position=2}]
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fts-tokenize.svg"
+     alt="Tokenizing the string Hello, World! This is a TEST. Step one splits on non-alphanumeric characters, step two applies a length filter dropping the single letter a, step three lowercases, and step four drops the stop words this and is, leaving hello, world and test with their positions">
 
 ### Stop Words
 
@@ -123,14 +80,12 @@ pub const TokenizerConfig = struct {
 
 When `use_stemming` is enabled, tokens are reduced to their root forms:
 
-```
-Input Token    →  Stemmed
-─────────────────────────
-"running"      →  "run"
-"connected"    →  "connect"
-"optimization" →  "optim"
-"databases"    →  "databas"
-```
+| Input token | Stemmed |
+|-------------|---------|
+| `running` | `run` |
+| `connected` | `connect` |
+| `optimization` | `optim` |
+| `databases` | `databas` |
 
 **Why stem?** Stemming improves recall by matching morphological variants:
 - Query "run" matches documents containing "running", "runs", "runner"
@@ -160,14 +115,12 @@ The dictionary maps tokens to integer IDs and tracks statistics.
 
 ### What It Does
 
-```
-Token          →  TokenId  DocFreq  PostingPage
-─────────────────────────────────────────────────
-"hello"        →     1        5         42
-"world"        →     2        3         43
-"database"     →     3       12         44
-"search"       →     4        8         45
-```
+| Token | TokenId | DocFreq | PostingPage |
+|-------|--------:|--------:|------------:|
+| `hello` | 1 | 5 | 42 |
+| `world` | 2 | 3 | 43 |
+| `database` | 3 | 12 | 44 |
+| `search` | 4 | 8 | 45 |
 
 ### Why TokenIds?
 
@@ -182,13 +135,13 @@ The dictionary uses a B+Tree with:
 - **Key**: Token string (e.g., `"hello"`)
 - **Value**: DictionaryEntry (24 bytes)
 
-```
-DictionaryEntry (24 bytes, extern struct):
-┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
-│  total_freq  │  token_id    │   doc_freq   │ posting_page │  _padding    │
-│   (8 bytes)  │  (4 bytes)   │  (4 bytes)   │  (4 bytes)   │  (4 bytes)   │
-└──────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
-```
+| Field | Size | Offset |
+|-------|-----:|-------:|
+| `total_freq` | 8 B | 0 |
+| `token_id` | 4 B | 8 |
+| `doc_freq` | 4 B | 12 |
+| `posting_page` | 4 B | 16 |
+| `_padding` | 4 B | 20 |
 
 Fields are ordered largest-first to minimize internal padding (u64 requires 8-byte alignment).
 
@@ -203,21 +156,12 @@ Fields are ordered largest-first to minimize internal padding (u64 requires 8-by
 ### Operations
 
 **getOrCreate(token)** - Get existing TokenId or create new one:
-```
-Input: "hello"
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ B+Tree lookup for "hello"           │
-│                                     │
-│ Found? → Return existing token_id   │
-│                                     │
-│ Not found? →                        │
-│   1. Assign next_token_id (e.g., 5) │
-│   2. Insert into B+Tree             │
-│   3. Return 5                       │
-└─────────────────────────────────────┘
-```
+1. Look up `"hello"` in the B+Tree.
+2. If found, return the existing `token_id`.
+3. If not found:
+   1. Assign the next `token_id` — say 5.
+   2. Insert the token into the B+Tree.
+   3. Return 5.
 
 ---
 
@@ -228,47 +172,36 @@ A posting list stores which documents contain a specific token.
 ### What It Does
 
 For the token "database" (TokenId 3):
-```
-Posting List for "database":
-┌────────┬───────────┐
-│ DocId  │ TermFreq  │
-├────────┼───────────┤
-│   15   │     3     │  ← Document 15 contains "database" 3 times
-│   42   │     1     │  ← Document 42 contains "database" 1 time
-│   89   │     7     │  ← Document 89 contains "database" 7 times
-│  156   │     2     │
-│  203   │     1     │
-│  ...   │    ...    │
-└────────┴───────────┘
-```
+| DocId | TermFreq | |
+|------:|---------:|---|
+| 15 | 3 | document 15 contains `database` three times |
+| 42 | 1 | |
+| 89 | 7 | |
+| 156 | 2 | |
+| 203 | 1 | |
+| … | … | |
 
 ### Page Layout
 
 Each posting list page is 4096 bytes:
 
-```
-Posting Page (4096 bytes):
-┌─────────────────────────────────────────────────────────────┐
-│ PageHeader (8 bytes)                                        │
-│   page_type = FTS_POSTING                                   │
-├─────────────────────────────────────────────────────────────┤
-│ PostingPageHeader (20 bytes)                                │
-│   token_id:        u32  - Which token this list is for      │
-│   num_entries:     u32  - Number of postings in this page   │
-│   next_page:       u32  - Overflow page (0 = none)          │
-│   num_skip_ptrs:   u16  - Number of skip pointers           │
-│   flags:           u16  - 0x01 = has positions              │
-│   data_start:      u32  - Byte offset where data begins     │
-├─────────────────────────────────────────────────────────────┤
-│ Skip Pointers (16 bytes each, optional)                     │
-│   [doc_id, byte_offset, entry_count] × N                    │
-├─────────────────────────────────────────────────────────────┤
-│ Posting Data (variable length, varint encoded)              │
-│   [doc_id: varint] [term_freq: varint]                      │
-│   [doc_id: varint] [term_freq: varint]                      │
-│   ...                                                       │
-└─────────────────────────────────────────────────────────────┘
-```
+| Region | Size | Contents |
+|--------|------|----------|
+| `PageHeader` | 8 B | `page_type = FTS_POSTING` |
+| `PostingPageHeader` | 20 B | see below |
+| Skip pointers | 16 B each, optional | `[doc_id, byte_offset, entry_count] × N` |
+| Posting data | variable, varint encoded | `[doc_id: varint][term_freq: varint]` repeated |
+
+**PostingPageHeader fields**
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `token_id` | u32 | Which token this list belongs to |
+| `num_entries` | u32 | Postings held in this page |
+| `next_page` | u32 | Overflow page, 0 for none |
+| `num_skip_ptrs` | u16 | Number of skip pointers |
+| `flags` | u16 | `0x01` = positions present |
+| `data_start` | u32 | Byte offset where posting data begins |
 
 ### PostingPageHeader Explained
 
@@ -287,14 +220,12 @@ The `PostingPageHeader` is metadata at the start of each posting page:
 
 Document IDs and frequencies are stored using **variable-length integers** (varints) for compression:
 
-```
-Value           Binary              Varint Bytes     Savings
-─────────────────────────────────────────────────────────────
-127             0111 1111           [0x7F]           1 byte (vs 8)
-128             1000 0000           [0x80, 0x01]     2 bytes
-16383           0011 1111 1111 1111 [0xFF, 0x7F]     2 bytes
-1,000,000       ...                 [0xC0, 0x84, 0x3D] 3 bytes
-```
+| Value | Varint bytes | Encoded size | Fixed-width size |
+|------:|--------------|-------------:|-----------------:|
+| 127 | `[0x7F]` | 1 B | 8 B |
+| 128 | `[0x80, 0x01]` | 2 B | 8 B |
+| 16,383 | `[0xFF, 0x7F]` | 2 B | 8 B |
+| 1,000,000 | `[0xC0, 0x84, 0x3D]` | 3 B | 8 B |
 
 **Encoding algorithm:**
 ```
@@ -322,29 +253,19 @@ Result: [0xAC, 0x02] (2 bytes instead of 8)
 
 When a posting list exceeds one page, it chains to overflow pages:
 
-```
-Page 42 (first page)          Page 87 (overflow)
-┌────────────────────┐        ┌────────────────────┐
-│ Header             │        │ Header             │
-│   next_page = 87 ──┼───────►│   next_page = 0    │
-│   num_entries = 200│        │   num_entries = 50 │
-├────────────────────┤        ├────────────────────┤
-│ Entries 1-200      │        │ Entries 201-250    │
-└────────────────────┘        └────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fts-posting-overflow.svg"
+     alt="Page 42 holds the first 200 posting entries and its next_page field points to page 87, which holds entries 201 to 250 and has next_page 0 marking the end of the chain">
 
 ### Skip Pointers
 
 Skip pointers enable O(log n) seeking within posting lists, dramatically speeding up multi-term AND queries.
 
 **Structure:**
-```
-SkipPointer (16 bytes):
-┌────────────┬─────────────┬─────────────┐
-│  doc_id    │ byte_offset │ entry_count │
-│  (8 bytes) │  (4 bytes)  │  (4 bytes)  │
-└────────────┴─────────────┴─────────────┘
-```
+| Field | Size | Offset |
+|-------|-----:|-------:|
+| `doc_id` | 8 B | 0 |
+| `byte_offset` | 4 B | 8 |
+| `entry_count` | 4 B | 12 |
 
 **How they work:**
 
@@ -393,14 +314,12 @@ With skip pointers:    100 + ~100 seeks = ~200 operations
 
 BM25 scoring requires knowing each document's length. This is stored in a separate B+Tree:
 
-```
-DocId  →  Length (tokens)
-────────────────────────
-   1   →      150
-   2   →       45
-   3   →      892
-  ...  →      ...
-```
+| DocId | Length (tokens) |
+|------:|----------------:|
+| 1 | 150 |
+| 2 | 45 |
+| 3 | 892 |
+| … | … |
 
 **Why store lengths?**
 
@@ -496,72 +415,13 @@ Total Score for Document 42 = 4.96 + 5.10 = 10.06
 
 ### Single-Term Search
 
-```
-Query: "database"
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 1. Tokenize query                   │
-│    → ["database"]                   │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 2. Dictionary lookup                │
-│    "database" → TokenId 3           │
-│                 doc_freq = 50       │
-│                 posting_page = 44   │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 3. Iterate posting list (page 44)  │
-│    For each (doc_id, term_freq):    │
-│      - Get doc_length               │
-│      - Calculate BM25 score         │
-│      - Add to results               │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 4. Sort by score descending         │
-│    Return top K results             │
-└─────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fts-search-single.svg"
+     alt="Single-term search for database: tokenize the query, look the token up in the dictionary to get token id 3 with doc_freq 50 on posting page 44, walk that posting list computing a BM25 score per document, then sort by score and return the top K">
 
 ### Multi-Term Search (AND Semantics)
 
-```
-Query: "database optimization"
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 1. Tokenize query                   │
-│    → ["database", "optimization"]   │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 2. For each term, iterate posting   │
-│    list and accumulate scores       │
-│                                     │
-│    doc_scores[doc_id] += score      │
-│    doc_term_count[doc_id] += 1      │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 3. Filter: keep only docs where     │
-│    term_count == num_query_terms    │
-│    (AND semantics)                  │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 4. Sort by accumulated score        │
-│    Return top K results             │
-└─────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fts-search-and.svg"
+     alt="Multi-term AND search: tokenize into database and optimization, walk each posting list accumulating both a score and a term count per document, keep only documents whose term count equals the number of query terms, then sort and return the top K">
 
 ### OR Search
 
@@ -575,30 +435,8 @@ const results = try fts.searchOr("mysql postgres", 10);
 const results = try fts.searchWithMode("mysql postgres", .@"or", 10);
 ```
 
-```
-Query: "mysql postgres" (OR mode)
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 1. Tokenize query                   │
-│    → ["mysql", "postgres"]          │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 2. For each term, iterate posting   │
-│    list and accumulate scores       │
-│                                     │
-│    doc_scores[doc_id] += score      │
-│    (no term count filtering)        │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 3. Sort by accumulated score        │
-│    Docs with both terms rank higher │
-└─────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fts-search-or.svg"
+     alt="OR-mode search for mysql postgres: tokenize, walk each posting list accumulating scores with no term-count filtering, then sort by accumulated score so documents matching both terms rank higher">
 
 ### NOT Search (Exclusions)
 
@@ -612,34 +450,8 @@ const results = try fts.searchWithMode("database -mysql", .@"and", 10);
 const results = try fts.searchWithMode("database -mysql -oracle", .@"and", 10);
 ```
 
-```
-Query: "database -mysql"
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 1. Parse query                      │
-│    terms = ["database"]             │
-│    excluded = ["mysql"]             │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 2. Search for positive terms        │
-│    → candidate documents            │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 3. Build exclusion set              │
-│    (all doc_ids containing "mysql") │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 4. Filter candidates                │
-│    Remove docs in exclusion set     │
-└─────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fts-search-exclusion.svg"
+     alt="Exclusion search for database minus mysql: parse into positive terms and excluded terms, search the positive terms for candidates, build the set of document ids containing mysql, then remove those candidates">
 
 ### Phrase Search
 
@@ -665,27 +477,20 @@ Document 3: "The brown quick fox"           ← NO MATCH (wrong order)
 
 **How it works:**
 
-```
-┌─────────────────────────────────────┐
-│ 1. Get posting lists with positions │
-│                                     │
-│    "quick": doc1[pos=1], doc2[pos=1]│
-│    "brown": doc1[pos=2], doc2[pos=3]│
-│    "fox":   doc1[pos=3], doc2[pos=4]│
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 2. For each candidate document:     │
-│    Check position adjacency         │
-│                                     │
-│    doc1: quick@1, brown@2, fox@3    │
-│          1+1=2 ✓, 1+2=3 ✓ → MATCH   │
-│                                     │
-│    doc2: quick@1, brown@3, fox@4    │
-│          1+1=2 ≠ 3 → NO MATCH       │
-└─────────────────────────────────────┘
-```
+1. Fetch the posting lists with positions:
+
+   | Term | Postings |
+   |------|----------|
+   | `quick` | doc 1 @ 1, doc 2 @ 1 |
+   | `brown` | doc 1 @ 2, doc 2 @ 3 |
+   | `fox` | doc 1 @ 3, doc 2 @ 4 |
+
+2. For each candidate document, check that the positions are adjacent:
+
+   | Document | Positions | Adjacent? |
+   |----------|-----------|-----------|
+   | doc 1 | `quick@1`, `brown@2`, `fox@3` | Yes — 1+1=2 and 1+2=3, so it matches |
+   | doc 2 | `quick@1`, `brown@3`, `fox@4` | No — 1+1=2 but `brown` is at 3 |
 
 **Note:** Phrase queries require `store_positions = true` in FtsConfig. Without positions, `searchPhrase()` falls back to AND semantics.
 
@@ -923,46 +728,8 @@ for (matches) |match| {
 
 ### indexDocument(doc_id, text)
 
-```
-Input: doc_id=42, text="The quick database optimization guide"
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 1. Tokenize text                    │
-│    → ["quick", "database",          │
-│        "optimization", "guide"]     │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 2. Count term frequencies           │
-│    term_freqs = {                   │
-│      "quick": 1,                    │
-│      "database": 1,                 │
-│      "optimization": 1,             │
-│      "guide": 1                     │
-│    }                                │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 3. For each term:                   │
-│    a. getOrCreate in dictionary     │
-│    b. Create posting page if needed │
-│    c. Append posting entry          │
-│    d. Increment doc_freq            │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ 4. Store document length            │
-│    doc_lengths[42] = 4              │
-│    Update avg_doc_length            │
-└─────────────────────────────────────┘
-        │
-        ▼
-Output: 4 (number of tokens indexed)
-```
+<img class="diagram diagram-md" src="../assets/diagrams/fts-index-document.svg"
+     alt="Indexing document 42 with the text The quick database optimization guide: tokenize into four terms, count their frequencies, then for each term get or create a dictionary entry, allocate a posting page if needed, append the posting and increment doc_freq, then store the document length of 4 and update the average document length">
 
 ---
 

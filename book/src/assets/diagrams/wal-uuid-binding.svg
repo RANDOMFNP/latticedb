@@ -1,0 +1,28 @@
+<svg
+ viewBox="0.00 0.00 394.00 55.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 51.16)">
+<title>wal_uuid_binding</title>
+<!-- db -->
+<g id="node1" class="node">
+<title>db</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M154.68,-47.16C154.68,-47.16 12,-47.16 12,-47.16 6,-47.16 0,-41.16 0,-35.16 0,-35.16 0,-12 0,-12 0,-6 6,0 12,0 12,0 154.68,0 154.68,0 160.68,0 166.68,-6 166.68,-12 166.68,-12 166.68,-35.16 166.68,-35.16 166.68,-41.16 160.68,-47.16 154.68,-47.16"/>
+<text xml:space="preserve" text-anchor="start" x="15.84" y="-26.63" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">Database file header</text>
+<text xml:space="preserve" text-anchor="start" x="15.84" y="-13.13" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">uuid: ABC123…</text>
+</g>
+<!-- wal -->
+<g id="node2" class="node">
+<title>wal</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M373.86,-47.16C373.86,-47.16 278.43,-47.16 278.43,-47.16 272.43,-47.16 266.43,-41.16 266.43,-35.16 266.43,-35.16 266.43,-12 266.43,-12 266.43,-6 272.43,0 278.43,0 278.43,0 373.86,0 373.86,0 379.86,0 385.86,-6 385.86,-12 385.86,-12 385.86,-35.16 385.86,-35.16 385.86,-41.16 379.86,-47.16 373.86,-47.16"/>
+<text xml:space="preserve" text-anchor="start" x="282.27" y="-26.63" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">WAL header</text>
+<text xml:space="preserve" text-anchor="start" x="282.27" y="-13.13" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">uuid: ABC123…</text>
+</g>
+<!-- db&#45;&gt;wal -->
+<g id="edge1" class="edge">
+<title>db&#45;&gt;wal</title>
+<path fill="none" stroke="#4a90d9" stroke-width="1.4" d="M179.18,-23.58C204.13,-23.58 230.62,-23.58 254.09,-23.58"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.4" points="179.33,-20.08 169.33,-23.58 179.33,-27.08 179.33,-20.08"/>
+<polygon fill="#4a90d9" stroke="#4a90d9" stroke-width="1.4" points="253.94,-27.08 263.94,-23.58 253.94,-20.08 253.94,-27.08"/>
+<text xml:space="preserve" text-anchor="middle" x="216.56" y="-25.33" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280"> &#160;must match &#160;</text>
+</g>
+</g>
+</svg>

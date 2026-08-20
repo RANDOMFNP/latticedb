@@ -1,0 +1,56 @@
+<svg
+ viewBox="0.00 0.00 253.00 349.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 344.98)">
+<title>txn_manager_integration</title>
+<!-- app -->
+<g id="node1" class="node">
+<title>app</title>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M232.8,-340.98C232.8,-340.98 12,-340.98 12,-340.98 6,-340.98 0,-334.98 0,-328.98 0,-328.98 0,-316.98 0,-316.98 0,-310.98 6,-304.98 12,-304.98 12,-304.98 232.8,-304.98 232.8,-304.98 238.8,-304.98 244.8,-310.98 244.8,-316.98 244.8,-316.98 244.8,-328.98 244.8,-328.98 244.8,-334.98 238.8,-340.98 232.8,-340.98"/>
+<text xml:space="preserve" text-anchor="middle" x="122.4" y="-317.96" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Application</text>
+</g>
+<!-- tm -->
+<g id="node2" class="node">
+<title>tm</title>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M232.8,-272.98C232.8,-272.98 12,-272.98 12,-272.98 6,-272.98 0,-266.98 0,-260.98 0,-260.98 0,-210.82 0,-210.82 0,-204.82 6,-198.82 12,-198.82 12,-198.82 232.8,-198.82 232.8,-198.82 238.8,-198.82 244.8,-204.82 244.8,-210.82 244.8,-210.82 244.8,-260.98 244.8,-260.98 244.8,-266.98 238.8,-272.98 232.8,-272.98"/>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-252.45" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">TxnManager</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-238.95" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;transaction lifecycle</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-225.45" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;prev_lsn chains</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-211.95" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;active transaction tracking</text>
+</g>
+<!-- app&#45;&gt;tm -->
+<g id="edge1" class="edge">
+<title>app&#45;&gt;tm</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M122.4,-304.76C122.4,-298.06 122.4,-290.04 122.4,-281.9"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="124.85,-282.08 122.4,-275.08 119.95,-282.08 124.85,-282.08"/>
+</g>
+<!-- wal -->
+<g id="node3" class="node">
+<title>wal</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M232.8,-166.82C232.8,-166.82 12,-166.82 12,-166.82 6,-166.82 0,-160.82 0,-154.82 0,-154.82 0,-118.16 0,-118.16 0,-112.16 6,-106.16 12,-106.16 12,-106.16 232.8,-106.16 232.8,-106.16 238.8,-106.16 244.8,-112.16 244.8,-118.16 244.8,-118.16 244.8,-154.82 244.8,-154.82 244.8,-160.82 238.8,-166.82 232.8,-166.82"/>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-146.29" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">WalManager</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-132.79" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;durability through logging</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-119.29" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;fsync on commit</text>
+</g>
+<!-- tm&#45;&gt;wal -->
+<g id="edge2" class="edge">
+<title>tm&#45;&gt;wal</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M122.4,-198.35C122.4,-190.98 122.4,-183.21 122.4,-175.78"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="124.85,-175.92 122.4,-168.92 119.95,-175.92 124.85,-175.92"/>
+</g>
+<!-- storage -->
+<g id="node4" class="node">
+<title>storage</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M232.8,-74.16C232.8,-74.16 12,-74.16 12,-74.16 6,-74.16 0,-68.16 0,-62.16 0,-62.16 0,-12 0,-12 0,-6 6,0 12,0 12,0 232.8,0 232.8,0 238.8,0 244.8,-6 244.8,-12 244.8,-12 244.8,-62.16 244.8,-62.16 244.8,-68.16 238.8,-74.16 232.8,-74.16"/>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-53.63" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">BufferPool + B+Tree</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-40.13" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;data storage</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-26.63" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;page management</text>
+<text xml:space="preserve" text-anchor="start" x="17.28" y="-13.13" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a"> &#160;visibility checks for MVCC</text>
+</g>
+<!-- wal&#45;&gt;storage -->
+<g id="edge3" class="edge">
+<title>wal&#45;&gt;storage</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M122.4,-105.73C122.4,-98.5 122.4,-90.61 122.4,-82.85"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="124.85,-83.19 122.4,-76.19 119.95,-83.19 124.85,-83.19"/>
+</g>
+</g>
+</svg>

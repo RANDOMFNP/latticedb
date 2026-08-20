@@ -1,0 +1,33 @@
+// Volcano model: the executor pulls from the root, and each operator pulls from
+// its child. Rows flow upward, demand flows downward.
+digraph volcano_operator_tree {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.3
+  ranksep=0.42
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=12
+        fontcolor="#1a1a1a" margin="0.22,0.12" width=1.5]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+
+  limit  [label="Limit" fillcolor="#dbe9f8"]
+  proj   [label="Project"]
+  filter [label="Filter"]
+  scan   [label="LabelScan"]
+
+  limit  -> proj   [label="  pulls from"]
+  proj   -> filter [label="  pulls from"]
+  filter -> scan   [label="  pulls from"]
+
+  caller [shape=plaintext style="" fillcolor="transparent"
+          fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"
+          label="executor calls next()"]
+  storage [shape=plaintext style="" fillcolor="transparent"
+           fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"
+           label="reads from storage"]
+
+  { rank=same; caller -> limit [color="#4a90d9" style=dashed] }
+  { rank=same; scan -> storage [color="#4a90d9" style=dashed] }
+}

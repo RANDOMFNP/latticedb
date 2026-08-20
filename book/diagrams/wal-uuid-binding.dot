@@ -1,0 +1,17 @@
+// The WAL header carries the database UUID so a stray WAL cannot be replayed
+// into the wrong database file.
+digraph wal_uuid_binding {
+  bgcolor="transparent"
+  rankdir=LR
+  nodesep=0.8
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=11
+        fontcolor="#1a1a1a" margin="0.22,0.14"]
+
+  db  [label="Database file header\luuid: ABC123…\l"]
+  wal [label="WAL header\luuid: ABC123…\l"]
+
+  db -> wal [dir=both color="#4a90d9" penwidth=1.4 label="  must match  "
+             fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+}

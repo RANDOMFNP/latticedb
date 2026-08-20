@@ -1,0 +1,39 @@
+<svg
+ viewBox="0.00 0.00 205.00 140.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 135.56)">
+<title>btree_root_split</title>
+<!-- newroot -->
+<g id="node1" class="node">
+<title>newroot</title>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M127.8,-131.56C127.8,-131.56 63,-131.56 63,-131.56 57,-131.56 51,-125.56 51,-119.56 51,-119.56 51,-97.78 51,-97.78 51,-91.78 57,-85.78 63,-85.78 63,-85.78 127.8,-85.78 127.8,-85.78 133.8,-85.78 139.8,-91.78 139.8,-97.78 139.8,-97.78 139.8,-119.56 139.8,-119.56 139.8,-125.56 133.8,-131.56 127.8,-131.56"/>
+<text xml:space="preserve" text-anchor="middle" x="95.4" y="-111.52" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">New root</text>
+<text xml:space="preserve" text-anchor="middle" x="95.4" y="-97.27" font-family="Menlo,Consolas,monospace" font-size="12.00" fill="#1a1a1a">[50]</text>
+</g>
+<!-- oldroot -->
+<g id="node2" class="node">
+<title>oldroot</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M58.8,-42.78C58.8,-42.78 12,-42.78 12,-42.78 6,-42.78 0,-36.78 0,-30.78 0,-30.78 0,-12 0,-12 0,-6 6,0 12,0 12,0 58.8,0 58.8,0 64.8,0 70.8,-6 70.8,-12 70.8,-12 70.8,-30.78 70.8,-30.78 70.8,-36.78 64.8,-42.78 58.8,-42.78"/>
+<text xml:space="preserve" text-anchor="middle" x="35.4" y="-22.74" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Old root</text>
+<text xml:space="preserve" text-anchor="middle" x="35.4" y="-9.99" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">(left)</text>
+</g>
+<!-- newroot&#45;&gt;oldroot -->
+<g id="edge1" class="edge">
+<title>newroot&#45;&gt;oldroot</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M79.64,-85.26C72.04,-74.47 62.87,-61.44 54.85,-50.04"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="57.02,-48.86 50.99,-44.55 53.01,-51.68 57.02,-48.86"/>
+</g>
+<!-- newpage -->
+<g id="node3" class="node">
+<title>newpage</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M185.18,-42.78C185.18,-42.78 125.62,-42.78 125.62,-42.78 119.62,-42.78 113.62,-36.78 113.62,-30.78 113.62,-30.78 113.62,-12 113.62,-12 113.62,-6 119.62,0 125.62,0 125.62,0 185.18,0 185.18,0 191.18,0 197.18,-6 197.18,-12 197.18,-12 197.18,-30.78 197.18,-30.78 197.18,-36.78 191.18,-42.78 185.18,-42.78"/>
+<text xml:space="preserve" text-anchor="middle" x="155.4" y="-22.74" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">New page</text>
+<text xml:space="preserve" text-anchor="middle" x="155.4" y="-9.99" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">(right)</text>
+</g>
+<!-- newroot&#45;&gt;newpage -->
+<g id="edge2" class="edge">
+<title>newroot&#45;&gt;newpage</title>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M111.16,-85.26C118.76,-74.47 127.93,-61.44 135.95,-50.04"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="137.79,-51.68 139.81,-44.55 133.78,-48.86 137.79,-51.68"/>
+</g>
+</g>
+</svg>

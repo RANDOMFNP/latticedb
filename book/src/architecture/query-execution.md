@@ -4,37 +4,8 @@
 
 Lattice executes Cypher queries using the **Volcano iterator model**—a pull-based execution engine where operators form a tree and data flows upward one row at a time. This design enables lazy evaluation, memory efficiency, and composable query plans.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Query Execution Pipeline                      │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  "MATCH (p:Person) WHERE p.age > 30 RETURN p.name LIMIT 10"     │
-│                              │                                   │
-│                              ▼                                   │
-│                    ┌─────────────────┐                          │
-│                    │      Lexer      │  Tokens                  │
-│                    └────────┬────────┘                          │
-│                              ▼                                   │
-│                    ┌─────────────────┐                          │
-│                    │     Parser      │  AST                     │
-│                    └────────┬────────┘                          │
-│                              ▼                                   │
-│                    ┌─────────────────┐                          │
-│                    │    Semantic     │  Validated AST           │
-│                    │    Analyzer     │  + Variable bindings     │
-│                    └────────┬────────┘                          │
-│                              ▼                                   │
-│                    ┌─────────────────┐                          │
-│                    │     Planner     │  Operator Tree           │
-│                    └────────┬────────┘                          │
-│                              ▼                                   │
-│                    ┌─────────────────┐                          │
-│                    │    Executor     │  Result Rows             │
-│                    └─────────────────┘                          │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/query-pipeline.svg"
+     alt="The query pipeline: a Cypher string passes through the lexer producing tokens, the parser producing an AST, the semantic analyzer producing a validated AST with variable bindings, the planner producing an operator tree, and the executor producing result rows">
 
 ## The Volcano Iterator Model
 
@@ -63,23 +34,8 @@ pub const Operator = struct {
 
 Data flows **upward** through the operator tree. The root operator "pulls" from its children:
 
-```
-        ┌─────────┐
-        │  Limit  │  ◄── Executor calls next() here
-        └────┬────┘
-             │ pulls from
-        ┌────┴────┐
-        │ Project │
-        └────┬────┘
-             │ pulls from
-        ┌────┴────┐
-        │ Filter  │
-        └────┬────┘
-             │ pulls from
-        ┌────┴────┐
-        │LabelScan│  ◄── Reads from storage
-        └─────────┘
-```
+<img class="diagram diagram-sm" src="../assets/diagrams/volcano-operator-tree.svg"
+     alt="A Volcano operator tree. The executor calls next on Limit, which pulls from Project, which pulls from Filter, which pulls from LabelScan, which reads from storage">
 
 When the executor calls `root.next()`:
 1. Limit calls Project.next()
@@ -124,11 +80,11 @@ pub const SlotValue = union(enum) {
 
 Performance. Looking up `slots[3]` is O(1). The planner assigns each variable to a numbered slot:
 
-```cypher
-MATCH (p:Person)-[r:KNOWS]->(f:Person)
-       │          │          │
-     slot 0    slot 1     slot 2
-```
+| Pattern element | Slot |
+|-----------------|-----:|
+| `(p:Person)` | 0 |
+| `[r:KNOWS]` | 1 |
+| `(f:Person)` | 2 |
 
 The execution context maintains the mapping from names to slots for expression evaluation.
 
@@ -182,11 +138,11 @@ Supports short-circuit evaluation for `AND`/`OR`.
 
 Transforms rows by evaluating expressions for each output column.
 
-```cypher
-RETURN p.name, p.age + 1, "literal"
-       │        │          │
-    expr[0]  expr[1]    expr[2]
-```
+| Return item | Expression |
+|-------------|-----------:|
+| `p.name` | `expr[0]` |
+| `p.age + 1` | `expr[1]` |
+| `"literal"` | `expr[2]` |
 
 ```zig
 fn next(self: *Project, ctx: *ExecutionContext) !?*Row {
@@ -505,7 +461,7 @@ MATCH (p:Person) WHERE p.age > 30 RETURN p.name LIMIT 10
 
 Produces:
 
-```
+```text
 Limit(count=10)
   └── Project([p.name → slot 0])
         └── Filter(p.age > 30)
@@ -520,7 +476,7 @@ MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a.name, b.name
 
 Produces:
 
-```
+```text
 Project([a.name → slot 0, b.name → slot 1])
   └── Expand(source=0, target=1, type="KNOWS", dir=outgoing)
         └── LabelScan(label="Person", output=slot 0)
@@ -579,7 +535,7 @@ try ctx.setParameter("min_age", .{ .int_val = 30 });
 
 Operators are composable—any operator can wrap any other:
 
-```
+```text
 // Filter wrapping Expand wrapping LabelScan
 Filter
   └── Expand
@@ -744,7 +700,7 @@ if (result) |r| {
 
 When you call `db.query(cypher)`, the following happens:
 
-```
+```text
 1. Parser.init(allocator, cypher)
    └── parser.parse() → AST (or ParseError)
 

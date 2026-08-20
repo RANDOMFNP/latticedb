@@ -10,18 +10,8 @@ The Page Manager handles the lowest level of database storage: fixed-size pages.
 
 Every piece of data lives in a 4KB page. This uniformity simplifies everything:
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                    Database File                            │
-├────────────┬────────────┬────────────┬────────────┬────────┤
-│  Page 0    │  Page 1    │  Page 2    │  Page 3    │  ...   │
-│  (Header)  │  (B+Tree)  │  (B+Tree)  │  (Free)    │        │
-│  4096 bytes│  4096 bytes│  4096 bytes│  4096 bytes│        │
-└────────────┴────────────┴────────────┴────────────┴────────┘
-     │             │             │             │
-     ▼             ▼             ▼             ▼
-Offset: 0        4096         8192        12288
-```
+<img class="diagram diagram-md" src="../assets/diagrams/page-manager-file-layout.svg"
+     alt="The database file as a row of fixed 4 KB pages: page 0 is the header at offset 0, pages 1 and 2 hold B+Tree data at offsets 4096 and 8192, page 3 is free at offset 12288">
 
 To read page N: `offset = N * 4096`
 
@@ -46,21 +36,17 @@ Fixed-size pages make the buffer pool trivial - every frame is the same size, no
 
 The first page is special - it contains metadata about the database:
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                    File Header (Page 0)                     │
-├────────────────────────────────────────────────────────────┤
-│  Offset 0-3:    Magic number (0x4C415454 = "LATT")         │
-│  Offset 4-5:    Format version                              │
-│  Offset 6-7:    Minimum reader version                      │
-│  Offset 8-11:   Page size (4096)                            │
-│  Offset 12-15:  Freelist head page                          │
-│  Offset 16-23:  Created timestamp                           │
-│  Offset 24-31:  Modified timestamp                          │
-│  Offset 32-47:  File UUID (16 bytes)                        │
-│  Offset 48+:    Reserved / padding                          │
-└────────────────────────────────────────────────────────────┘
-```
+| Offset | Size | Field |
+|--------|------|-------|
+| 0–3 | 4 B | Magic number — `0x4C415454` (`"LATT"`) |
+| 4–5 | 2 B | Format version |
+| 6–7 | 2 B | Minimum reader version |
+| 8–11 | 4 B | Page size (4096) |
+| 12–15 | 4 B | Freelist head page |
+| 16–23 | 8 B | Created timestamp |
+| 24–31 | 8 B | Modified timestamp |
+| 32–47 | 16 B | File UUID |
+| 48 → | — | Reserved / padding |
 
 Key fields:
 
@@ -73,18 +59,13 @@ Key fields:
 
 Every other page starts with a common header:
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                    Page Header (8 bytes)                    │
-├────────────────────────────────────────────────────────────┤
-│  Offset 0-3:    Checksum (CRC32 of bytes 8-4095)           │
-│  Offset 4:      Page type (btree_internal, btree_leaf, etc)│
-│  Offset 5:      Flags                                       │
-│  Offset 6-7:    Reserved                                    │
-├────────────────────────────────────────────────────────────┤
-│  Offset 8-4095: Page-specific data                         │
-└────────────────────────────────────────────────────────────┘
-```
+| Offset | Size | Field |
+|--------|------|-------|
+| 0–3 | 4 B | Checksum — CRC32 of bytes 8–4095 |
+| 4 | 1 B | Page type — `btree_internal`, `btree_leaf`, and so on |
+| 5 | 1 B | Flags |
+| 6–7 | 2 B | Reserved |
+| 8–4095 | 4088 B | Page-specific data |
 
 ## Page Types
 
@@ -104,15 +85,8 @@ pub const PageType = enum(u8) {
 
 Free pages are linked together in a freelist:
 
-```
-Header                    Free pages linked together
-┌──────────┐             ┌──────────┐    ┌──────────┐    ┌──────────┐
-│freelist: ├────────────►│ Page 5   ├───►│ Page 3   ├───►│ Page 9   │
-│    5     │             │ next: 3  │    │ next: 9  │    │ next: 0  │
-└──────────┘             └──────────┘    └──────────┘    └──────────┘
-                                                              │
-                                                         NULL (end)
-```
+<img class="diagram diagram-md" src="../assets/diagrams/page-manager-freelist.svg"
+     alt="The file header holds freelist head 5. Page 5 points to page 3, page 3 points to page 9, and page 9 has next 0, marking the end of the list">
 
 ### Allocating a Page
 

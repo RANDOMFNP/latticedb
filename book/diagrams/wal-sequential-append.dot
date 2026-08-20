@@ -1,0 +1,39 @@
+// Data pages are written at scattered offsets; the WAL only ever appends.
+digraph wal_sequential_append {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.25
+  ranksep=0.45
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=11
+        fontcolor="#1a1a1a" margin="0.18,0.12"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
+
+  subgraph cluster_random {
+    label="Data pages — random writes"
+    fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
+    color="#dbe3ec" penwidth=1.1 style=rounded margin=14
+    rw [shape=plaintext style="" fillcolor="transparent" label="three seeks"
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#c2703f"]
+    P1 [label="P1" fillcolor="#fdf0ea" color="#c2703f"]
+    P2 [label="P2" fillcolor="#fdf0ea" color="#c2703f"]
+    P3 [label="P3" fillcolor="#fdf0ea" color="#c2703f"]
+    { rank=same; P1 -> P2 -> P3 [style=invis] }
+    rw -> P1 [color="#c2703f"]
+    rw -> P2 [color="#c2703f"]
+    rw -> P3 [color="#c2703f"]
+  }
+
+  subgraph cluster_seq {
+    label="WAL — sequential append"
+    fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
+    color="#dbe3ec" penwidth=1.1 style=rounded margin=14
+    sw [shape=plaintext style="" fillcolor="transparent"
+        label="one write position"
+        fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#2f7d32"]
+    LOG [label="log  log  log  log  …  ▸" fillcolor="#eaf5ea" color="#2f7d32"]
+    sw -> LOG [color="#2f7d32"]
+  }
+}

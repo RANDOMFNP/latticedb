@@ -42,22 +42,21 @@ The WAL contains everything we need. After a crash:
 
 Scan the WAL to understand what happened:
 
-```
-WAL Contents:
-┌────────────────────────────────────────────────────┐
-│ LSN 1: TXN_BEGIN (txn=1)         → txn 1 started  │
-│ LSN 2: INSERT (txn=1)            → txn 1 modified │
-│ LSN 3: TXN_BEGIN (txn=2)         → txn 2 started  │
-│ LSN 4: INSERT (txn=2)            → txn 2 modified │
-│ LSN 5: TXN_COMMIT (txn=1)        → txn 1 COMMITTED│
-│ LSN 6: UPDATE (txn=2)            → txn 2 modified │
-│ ─── CRASH ───                                      │
-└────────────────────────────────────────────────────┘
+| LSN | Record | Transaction | Meaning |
+|----:|--------|------------:|---------|
+| 1 | `TXN_BEGIN` | 1 | Transaction 1 started |
+| 2 | `INSERT` | 1 | Transaction 1 modified data |
+| 3 | `TXN_BEGIN` | 2 | Transaction 2 started |
+| 4 | `INSERT` | 2 | Transaction 2 modified data |
+| 5 | `TXN_COMMIT` | 1 | Transaction 1 committed |
+| 6 | `UPDATE` | 2 | Transaction 2 modified data |
 
-Analysis Result:
-  Transaction 1: COMMITTED (has TXN_COMMIT)
-  Transaction 2: IN_PROGRESS (no commit/abort)
-```
+The process crashes after LSN 6, giving:
+
+| Transaction | State |
+|------------:|-------|
+| 1 | `COMMITTED` — has `TXN_COMMIT` |
+| 2 | `IN_PROGRESS` — no commit or abort |
 
 During analysis, we build:
 1. **Transaction table**: State of each transaction (committed, aborted, in-progress)
@@ -67,21 +66,19 @@ During analysis, we build:
 
 Apply committed operations to the database:
 
-```
-Redo Process:
-┌─────────────────────────────────────────────────────┐
-│ For each operation in redo_list:                    │
-│   1. Check if transaction committed                 │
-│      - If not: skip (discard uncommitted changes)   │
-│   2. Apply the operation to database file           │
-│   3. Continue to next operation                     │
-└─────────────────────────────────────────────────────┘
+For each operation in the redo list:
 
-Result:
-  LSN 2 (INSERT, txn=1): REDO (txn 1 committed)
-  LSN 4 (INSERT, txn=2): SKIP (txn 2 didn't commit)
-  LSN 6 (UPDATE, txn=2): SKIP (txn 2 didn't commit)
-```
+1. Check whether its transaction committed. If not, skip it — the change is discarded.
+2. Apply the operation to the database file.
+3. Continue to the next operation.
+
+Against the log above:
+
+| LSN | Operation | Transaction | Outcome |
+|----:|-----------|------------:|---------|
+| 2 | `INSERT` | 1 | Redo — transaction 1 committed |
+| 4 | `INSERT` | 2 | Skip — transaction 2 never committed |
+| 6 | `UPDATE` | 2 | Skip — transaction 2 never committed |
 
 ## Why No Undo?
 
@@ -103,18 +100,8 @@ For an embedded database like Lattice, the simpler "don't undo" approach works w
 
 Recovery doesn't scan the entire WAL - only from the last checkpoint:
 
-```
-WAL Timeline:
-─────────────────────────────────────────────────────────────────►
-
-[old records] │ CHECKPOINT │ [records since checkpoint]
-              ▲            ▲
-              │            │
-    checkpoint_lsn         │
-                           │
-              Recovery starts here
-              (everything before is safely on disk)
-```
+<img class="diagram diagram-md" src="../assets/diagrams/recovery-checkpoint-timeline.svg"
+     alt="The WAL timeline: old records already flushed to disk, then the checkpoint marking checkpoint_lsn, then the records written since, which are the only ones recovery replays">
 
 The `checkpoint_lsn` in the WAL header marks where recovery begins. The Checkpointer sets this after successfully flushing all dirty pages.
 
@@ -194,31 +181,30 @@ When recovery encounters a checksum mismatch, it must determine whether this is:
 
 On checksum mismatch, we scan ahead to check for valid frames:
 
-```
-Scenario 1: Tail Corruption (Torn Write)
-─────────────────────────────────────────
-Frame 0: checksum OK
-Frame 1: checksum OK
-Frame 2: checksum MISMATCH
-Frame 3: [nothing valid]
-Frame 4: [nothing valid]
+**Scenario 1 — tail corruption (a torn write)**
 
-→ No valid frames after corruption
-→ This is a torn write at end of WAL
-→ Safe to proceed with frames 0-1
+| Frame | Checksum |
+|------:|----------|
+| 0 | OK |
+| 1 | OK |
+| 2 | Mismatch |
+| 3 | Nothing valid |
+| 4 | Nothing valid |
 
+No valid frames follow the corruption, so this is a torn write at the end of the WAL.
+Recovery proceeds with frames 0 and 1.
 
-Scenario 2: Mid-Log Corruption (Real Corruption)
-────────────────────────────────────────────────
-Frame 0: checksum OK
-Frame 1: checksum MISMATCH  ← corruption here
-Frame 2: checksum OK        ← but valid data after!
-Frame 3: checksum OK
+**Scenario 2 — mid-log corruption (real corruption)**
 
-→ Valid frames exist after corruption
-→ This is real data corruption
-→ FAIL with MidLogCorruption error
-```
+| Frame | Checksum |
+|------:|----------|
+| 0 | OK |
+| 1 | Mismatch |
+| 2 | OK |
+| 3 | OK |
+
+Valid frames exist *after* the corrupt one, so this cannot be a torn tail. Recovery
+fails with `MidLogCorruption` rather than silently discarding committed data.
 
 ### Why This Matters
 
@@ -274,49 +260,8 @@ These are useful for:
 
 ## Recovery Flow Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Database Startup                             │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Open WAL File                               │
-│                 Read checkpoint_lsn from header                  │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     ANALYSIS PHASE                               │
-│                                                                  │
-│  for each record from checkpoint_lsn to end:                    │
-│    - Track transaction states                                    │
-│    - Build redo list for data operations                        │
-│    - Stop at corruption/end of valid log                        │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       REDO PHASE                                 │
-│                                                                  │
-│  for each operation in redo_list:                               │
-│    if transaction.state == committed:                           │
-│      apply operation to database                                │
-│    else:                                                        │
-│      discard (transaction didn't commit)                        │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Sync Database File                            │
-│                 Return recovery statistics                       │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Database Ready for Use                         │
-└─────────────────────────────────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/recovery-flow.svg"
+     alt="Recovery flow on startup: open the WAL file and read checkpoint_lsn, run the analysis phase to track transaction states and build the redo list, run the redo phase applying committed operations and discarding the rest, sync the database file, and the database is ready for use">
 
 ## API
 

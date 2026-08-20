@@ -1,0 +1,23 @@
+// Clock replacement: the hand sweeps frames, clearing use bits until it finds
+// an unpinned frame whose use count is already zero.
+digraph buffer_pool_clock {
+  layout="circo"
+  bgcolor="transparent"
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.3 fontname="Menlo,Consolas,monospace" fontsize=11
+        fontcolor="#1a1a1a" margin="0.16,0.10"]
+  edge [color="#6b7280" penwidth=1.2 arrowsize=0.7]
+
+  f1 [label="Frame 1\luse 0\lpin 0\l" fillcolor="#eaf5ea" color="#2f7d32" penwidth=1.7]
+  f2 [label="Frame 2\luse 0\l"]
+  f3 [label="Frame 3\luse 1\l"]
+  f4 [label="Frame 4\luse 2\l"]
+
+  f1 -> f2 -> f3 -> f4 -> f1 [color="#4a90d9"]
+
+  hand [shape=plaintext style="" fillcolor="transparent" penwidth=0
+        fontname="Helvetica,Arial,sans-serif" fontsize=11 fontcolor="#2f7d32"
+        label="clock hand — evict here"]
+  hand -> f1 [color="#2f7d32" style=dashed penwidth=1.3]
+}

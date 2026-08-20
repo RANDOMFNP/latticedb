@@ -1,0 +1,76 @@
+<svg
+ viewBox="0.00 0.00 474.00 177.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 172.75)">
+<title>wal_sequential_append</title>
+<g id="clust1" class="cluster">
+<title>cluster_random</title>
+<path fill="none" stroke="#dbe3ec" stroke-width="1.1" d="M20,-8C20,-8 222,-8 222,-8 228,-8 234,-14 234,-20 234,-20 234,-148.75 234,-148.75 234,-154.75 228,-160.75 222,-160.75 222,-160.75 20,-160.75 20,-160.75 14,-160.75 8,-154.75 8,-148.75 8,-148.75 8,-20 8,-20 8,-14 14,-8 20,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="121" y="-145.35" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#6b7280">Data pages — random writes</text>
+</g>
+<g id="clust3" class="cluster">
+<title>cluster_seq</title>
+<path fill="none" stroke="#dbe3ec" stroke-width="1.1" d="M254,-8C254,-8 446,-8 446,-8 452,-8 458,-14 458,-20 458,-20 458,-148.75 458,-148.75 458,-154.75 452,-160.75 446,-160.75 446,-160.75 254,-160.75 254,-160.75 248,-160.75 242,-154.75 242,-148.75 242,-148.75 242,-20 242,-20 242,-14 248,-8 254,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="350" y="-145.35" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#6b7280">WAL — sequential append</text>
+</g>
+<!-- rw -->
+<g id="node1" class="node">
+<title>rw</title>
+<text xml:space="preserve" text-anchor="middle" x="121" y="-104.12" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#c2703f">three seeks</text>
+</g>
+<!-- P1 -->
+<g id="node2" class="node">
+<title>P1</title>
+<polygon fill="#fdf0ea" stroke="#c2703f" stroke-width="1.2" points="76,-58 22,-58 22,-22 76,-22 76,-58"/>
+<text xml:space="preserve" text-anchor="middle" x="49" y="-36.3" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">P1</text>
+</g>
+<!-- rw&#45;&gt;P1 -->
+<g id="edge3" class="edge">
+<title>rw&#45;&gt;P1</title>
+<path fill="none" stroke="#c2703f" stroke-width="1.1" d="M102.46,-90C93.86,-82.12 83.51,-72.63 74.21,-64.11"/>
+<polygon fill="#c2703f" stroke="#c2703f" stroke-width="1.1" points="76.02,-62.45 69.21,-59.52 72.71,-66.06 76.02,-62.45"/>
+</g>
+<!-- P2 -->
+<g id="node3" class="node">
+<title>P2</title>
+<polygon fill="#fdf0ea" stroke="#c2703f" stroke-width="1.2" points="148,-58 94,-58 94,-22 148,-22 148,-58"/>
+<text xml:space="preserve" text-anchor="middle" x="121" y="-36.3" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">P2</text>
+</g>
+<!-- rw&#45;&gt;P2 -->
+<g id="edge4" class="edge">
+<title>rw&#45;&gt;P2</title>
+<path fill="none" stroke="#c2703f" stroke-width="1.1" d="M121,-90C121,-82.9 121,-74.49 121,-66.66"/>
+<polygon fill="#c2703f" stroke="#c2703f" stroke-width="1.1" points="123.45,-66.83 121,-59.83 118.55,-66.83 123.45,-66.83"/>
+</g>
+<!-- P3 -->
+<g id="node4" class="node">
+<title>P3</title>
+<polygon fill="#fdf0ea" stroke="#c2703f" stroke-width="1.2" points="220,-58 166,-58 166,-22 220,-22 220,-58"/>
+<text xml:space="preserve" text-anchor="middle" x="193" y="-36.3" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">P3</text>
+</g>
+<!-- rw&#45;&gt;P3 -->
+<g id="edge5" class="edge">
+<title>rw&#45;&gt;P3</title>
+<path fill="none" stroke="#c2703f" stroke-width="1.1" d="M139.54,-90C148.14,-82.12 158.49,-72.63 167.79,-64.11"/>
+<polygon fill="#c2703f" stroke="#c2703f" stroke-width="1.1" points="169.29,-66.06 172.79,-59.52 165.98,-62.45 169.29,-66.06"/>
+</g>
+<!-- P1&#45;&gt;P2 -->
+<!-- P2&#45;&gt;P3 -->
+<!-- sw -->
+<g id="node5" class="node">
+<title>sw</title>
+<text xml:space="preserve" text-anchor="middle" x="350" y="-104.12" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#2f7d32">one write position</text>
+</g>
+<!-- LOG -->
+<g id="node6" class="node">
+<title>LOG</title>
+<polygon fill="#eaf5ea" stroke="#2f7d32" stroke-width="1.2" points="443.96,-58 256.04,-58 256.04,-22 443.96,-22 443.96,-58"/>
+<text xml:space="preserve" text-anchor="middle" x="350" y="-36.3" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">log &#160;log &#160;log &#160;log &#160;… &#160;▸</text>
+</g>
+<!-- sw&#45;&gt;LOG -->
+<g id="edge6" class="edge">
+<title>sw&#45;&gt;LOG</title>
+<path fill="none" stroke="#2f7d32" stroke-width="1.1" d="M350,-90C350,-82.9 350,-74.49 350,-66.66"/>
+<polygon fill="#2f7d32" stroke="#2f7d32" stroke-width="1.1" points="352.45,-66.83 350,-59.83 347.55,-66.83 352.45,-66.83"/>
+</g>
+</g>
+</svg>

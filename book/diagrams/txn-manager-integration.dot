@@ -1,0 +1,22 @@
+// Where the transaction manager sits: above the log, below the application.
+digraph txn_manager_integration {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.3
+  ranksep=0.45
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.24,0.14" width=3.4]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
+
+  app [label="Application" fillcolor="#f6f8fa" color="#c7d0da"]
+  tm  [label="TxnManager\l  transaction lifecycle\l  prev_lsn chains\l  active transaction tracking\l"
+       fillcolor="#dbe9f8" fontname="Menlo,Consolas,monospace" fontsize=11]
+  wal [label="WalManager\l  durability through logging\l  fsync on commit\l"
+       fontname="Menlo,Consolas,monospace" fontsize=11]
+  storage [label="BufferPool + B+Tree\l  data storage\l  page management\l  visibility checks for MVCC\l"
+           fontname="Menlo,Consolas,monospace" fontsize=11]
+
+  app -> tm -> wal -> storage
+}

@@ -1,0 +1,20 @@
+// Splitting the root is the only operation that increases tree height.
+digraph btree_root_split {
+  bgcolor="transparent"
+  rankdir=TB
+  nodesep=0.6
+  ranksep=0.6
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
+        fontcolor="#1a1a1a" margin="0.20,0.12"]
+  edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
+
+  newroot [label="New root\n[50]" fillcolor="#dbe9f8"
+           fontname="Menlo,Consolas,monospace"]
+  oldroot [label="Old root\n(left)"]
+  newpage [label="New page\n(right)"]
+
+  newroot -> oldroot
+  newroot -> newpage
+}

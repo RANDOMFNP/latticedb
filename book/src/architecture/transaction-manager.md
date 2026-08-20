@@ -4,17 +4,13 @@
 
 A transaction is a **logical unit of work** - a group of operations that should either all succeed or all fail together.
 
-```
-Without transactions:                With transactions:
-
-1. Debit Alice $100    ✓            BEGIN
-2. ─── CRASH ───                    1. Debit Alice $100
-3. Credit Bob $100     ✗            2. Credit Bob $100
-                                    COMMIT
-Result: Alice lost $100,
-Bob got nothing                     Result: Either both happen,
-                                    or neither happens
-```
+| | Without transactions | With transactions |
+|---|---|---|
+| Step 1 | Debit Alice $100 — succeeds | `BEGIN` |
+| Step 2 | Crash | Debit Alice $100 |
+| Step 3 | Credit Bob $100 — never runs | Credit Bob $100 |
+| Step 4 | — | `COMMIT` |
+| **Result** | Alice lost $100 and Bob got nothing | Either both happen or neither does |
 
 ## The ACID Properties
 
@@ -79,28 +75,14 @@ pub const TxnManager = struct {
 
 When you start a transaction:
 
-```
-Application                    TxnManager                         WAL
-    │                              │                               │
-    │  begin(read_write, snapshot) │                               │
-    ├─────────────────────────────►│                               │
-    │                              │                               │
-    │                              │  1. Lock mutex                │
-    │                              │  2. Assign txn_id = 1         │
-    │                              │  3. Assign start_ts = 1       │
-    │                              │  4. appendRecord(TXN_BEGIN)   │
-    │                              ├──────────────────────────────►│
-    │                              │                     lsn = 1   │
-    │                              │◄──────────────────────────────┤
-    │                              │                               │
-    │                              │  5. Create TxnEntry           │
-    │                              │     last_lsn = 1              │
-    │                              │  6. Store in active_txns      │
-    │                              │  7. Unlock mutex              │
-    │                              │                               │
-    │   Transaction { id=1, ... }  │                               │
-    │◄─────────────────────────────┤                               │
-```
+1. Lock the manager mutex.
+2. Assign `txn_id = 1`.
+3. Assign `start_ts = 1`.
+4. `appendRecord(TXN_BEGIN)` — the WAL returns `lsn = 1`.
+5. Create a `TxnEntry` with `last_lsn = 1`.
+6. Store it in `active_txns`.
+7. Unlock the mutex.
+8. Return `Transaction { id = 1, ... }` to the caller.
 
 The `start_ts` is crucial for isolation - it determines what data this transaction can "see".
 
@@ -108,27 +90,12 @@ The `start_ts` is crucial for isolation - it determines what data this transacti
 
 Each modification goes through `logOperation`:
 
-```
-Application                    TxnManager                         WAL
-    │                              │                               │
-    │  logOperation(INSERT, data)  │                               │
-    ├─────────────────────────────►│                               │
-    │                              │                               │
-    │                              │  1. Check txn.canWrite()      │
-    │                              │  2. Get TxnEntry              │
-    │                              │  3. appendRecord(INSERT,      │
-    │                              │       txn_id=1,               │
-    │                              │       prev_lsn=1,  ◄── last_lsn
-    │                              │       payload=data)           │
-    │                              ├──────────────────────────────►│
-    │                              │                     lsn = 2   │
-    │                              │◄──────────────────────────────┤
-    │                              │                               │
-    │                              │  4. Update last_lsn = 2       │
-    │                              │                               │
-    │              lsn = 2         │                               │
-    │◄─────────────────────────────┤                               │
-```
+1. Check `txn.canWrite()`.
+2. Look up the `TxnEntry`.
+3. `appendRecord(INSERT, txn_id = 1, prev_lsn = 1, payload = data)` — `prev_lsn`
+   is the entry's current `last_lsn`. The WAL returns `lsn = 2`.
+4. Update `last_lsn = 2`.
+5. Return `lsn = 2` to the caller.
 
 Notice how `prev_lsn` points to the previous operation. This builds a **backward chain**.
 
@@ -136,32 +103,15 @@ Notice how `prev_lsn` points to the previous operation. This builds a **backward
 
 Commit makes everything permanent:
 
-```
-Application                    TxnManager                         WAL           Disk
-    │                              │                               │              │
-    │  commit(&txn)                │                               │              │
-    ├─────────────────────────────►│                               │              │
-    │                              │                               │              │
-    │                              │  1. Check txn.state == active │              │
-    │                              │  2. appendRecord(TXN_COMMIT,  │              │
-    │                              │       prev_lsn=last_lsn)      │              │
-    │                              ├──────────────────────────────►│              │
-    │                              │                               │              │
-    │                              │  3. wal.sync()                │              │
-    │                              ├──────────────────────────────►│   fsync()   │
-    │                              │                               ├─────────────►│
-    │                              │                               │   durable!  │
-    │                              │                               │◄─────────────┤
-    │                              │◄──────────────────────────────┤              │
-    │                              │                               │              │
-    │                              │  4. Assign commit_ts          │              │
-    │                              │  5. Set txn.state = committed │              │
-    │                              │  6. Remove from active_txns   │              │
-    │                              │  7. Increment committed_count │              │
-    │                              │                               │              │
-    │              OK              │                               │              │
-    │◄─────────────────────────────┤                               │              │
-```
+1. Check that `txn.state == active`.
+2. `appendRecord(TXN_COMMIT, prev_lsn = last_lsn)`.
+3. `wal.sync()` — this issues the `fsync()`, and it is the point at which the
+   transaction becomes durable. Everything before this step can still be lost.
+4. Assign `commit_ts`.
+5. Set `txn.state = committed`.
+6. Remove the entry from `active_txns`.
+7. Increment `committed_count`.
+8. Return to the caller.
 
 **The critical point**: We only return success to the application AFTER `fsync()` completes. This is the durability guarantee.
 
@@ -177,24 +127,12 @@ limits.
 
 Abort discards everything:
 
-```
-Application                    TxnManager                         WAL
-    │                              │                               │
-    │  abort(&txn)                 │                               │
-    ├─────────────────────────────►│                               │
-    │                              │                               │
-    │                              │  1. appendRecord(TXN_ABORT)   │
-    │                              ├──────────────────────────────►│
-    │                              │                               │
-    │                              │  2. wal.sync()                │
-    │                              │                               │
-    │                              │  3. Set txn.state = aborted   │
-    │                              │  4. Clean up TxnEntry         │
-    │                              │  5. Remove from active_txns   │
-    │                              │                               │
-    │              OK              │                               │
-    │◄─────────────────────────────┤                               │
-```
+1. `appendRecord(TXN_ABORT)`.
+2. `wal.sync()`.
+3. Set `txn.state = aborted`.
+4. Clean up the `TxnEntry`.
+5. Remove it from `active_txns`.
+6. Return to the caller.
 
 We log TXN_ABORT so that during crash recovery, we know this transaction was intentionally aborted.
 
@@ -202,30 +140,20 @@ We log TXN_ABORT so that during crash recovery, we know this transaction was int
 
 Every record points back to the previous record **from the same transaction**. This creates a linked list through the WAL:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         WAL                                      │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  LSN 1: TXN_BEGIN  (txn=1, prev_lsn=0)  ◄─────────────┐         │
-│                                                        │         │
-│  LSN 2: INSERT     (txn=1, prev_lsn=1)  ──────────────┘         │
-│                              ▲                                   │
-│                              │                                   │
-│  LSN 3: TXN_BEGIN  (txn=2, prev_lsn=0)  ◄───────┐               │
-│                                                  │               │
-│  LSN 4: UPDATE     (txn=1, prev_lsn=2)  ────────┼───┐           │
-│                              ▲                   │   │           │
-│                              │                   │   │           │
-│  LSN 5: DELETE     (txn=2, prev_lsn=3)  ────────┘   │           │
-│                                                      │           │
-│  LSN 6: TXN_COMMIT (txn=1, prev_lsn=4)  ─────────────┘          │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+| LSN | Record | Transaction | `prev_lsn` |
+|----:|--------|------------:|-----------:|
+| 1 | `TXN_BEGIN` | 1 | 0 |
+| 2 | `INSERT` | 1 | 1 |
+| 3 | `TXN_BEGIN` | 2 | 0 |
+| 4 | `UPDATE` | 1 | 2 |
+| 5 | `DELETE` | 2 | 3 |
+| 6 | `TXN_COMMIT` | 1 | 4 |
 
-Transaction 1's chain: 6 → 4 → 2 → 1
-Transaction 2's chain: 5 → 3
-```
+Following `prev_lsn` backwards gives each transaction's chain without scanning the
+whole log:
+
+- Transaction 1: 6 → 4 → 2 → 1
+- Transaction 2: 5 → 3
 
 **Why is this useful?**
 
@@ -251,17 +179,8 @@ COMMIT;
 
 ### How Savepoints Work
 
-```
-                    Savepoint Stack                 Undo Log
-                    ┌─────────────────┐            ┌─────────────┐
-                    │ "before_orders" │            │ INSERT #1   │ ← position 1
-tm.savepoint()  ──► │   lsn: 3        │            │ INSERT #2   │ ← position 2
-                    │   undo_pos: 0   │──────────► └─────────────┘
-                    └─────────────────┘                  ▲
-                                                         │
-                                                    truncate here
-                                                    on rollback
-```
+<img class="diagram diagram-md" src="../assets/diagrams/savepoint-stack.svg"
+     alt="A savepoint named before_orders records lsn 3 and undo position 0. The undo log holds two inserts at positions 1 and 2, and rolling back to the savepoint truncates the log back to the recorded undo position">
 
 When we rollback to savepoint:
 1. Find the savepoint by name
@@ -280,16 +199,16 @@ commit_ts: Assigned at COMMIT - marks when changes become visible to others
 
 ### Snapshot Isolation Example
 
-```
-Timeline:
-─────────────────────────────────────────────────────────────────►
-     │           │           │           │           │
-   ts=1        ts=2        ts=3        ts=4        ts=5
-     │           │           │           │           │
-   Txn A       Txn A       Txn B       Txn A       Txn B
-   BEGIN      INSERT      BEGIN      COMMIT       reads
- start_ts=1    x=100     start_ts=3  commit_ts=4    x
-```
+| Timestamp | Transaction | Event |
+|----------:|-------------|-------|
+| 1 | Txn A | `BEGIN` — `start_ts = 1` |
+| 2 | Txn A | `INSERT x = 100` |
+| 3 | Txn B | `BEGIN` — `start_ts = 3` |
+| 4 | Txn A | `COMMIT` — `commit_ts = 4` |
+| 5 | Txn B | Reads `x` |
+
+Txn B began at `ts = 3`, before Txn A committed at `ts = 4`, so its snapshot does not
+include `x = 100` even though the read happens afterwards.
 
 **Question**: What does Txn B see when it reads x?
 
@@ -374,33 +293,7 @@ try tm.commit(&txn);  // or tm.abort(&txn)
 
 ## Integration
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Application                               │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      TxnManager                                  │
-│  • Manages transaction lifecycle                                 │
-│  • Maintains prev_lsn chains                                     │
-│  • Tracks active transactions                                    │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       WalManager                                 │
-│  • Durability through logging                                    │
-│  • fsync on commit                                               │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    BufferPool + BTree                            │
-│  • Actual data storage                                           │
-│  • Page management                                               │
-│  • (Will check txn visibility for MVCC)                          │
-└─────────────────────────────────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/txn-manager-integration.svg"
+     alt="The layering: the application calls TxnManager, which handles transaction lifecycle, prev_lsn chains and active transaction tracking; TxnManager calls WalManager for logging and fsync on commit; below that sit the buffer pool and B+Tree holding the data">
 
 The Transaction Manager is the **coordinator** - it doesn't store data itself, but ensures that all operations follow ACID rules by orchestrating the WAL, tracking state, and enforcing invariants.

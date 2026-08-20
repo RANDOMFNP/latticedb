@@ -1,0 +1,18 @@
+// Recovery replays only the tail of the log, from checkpoint_lsn onward.
+digraph recovery_checkpoint_timeline {
+  bgcolor="transparent"
+  rankdir=LR
+  nodesep=0.12
+  fontname="Helvetica,Arial,sans-serif"
+  node [shape=box style="filled" fillcolor="#eef4fb" color="#4a90d9"
+        penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=11
+        fontcolor="#1a1a1a" margin="0.24,0.18"]
+  edge [style=invis]
+
+  old  [label="old records\lalready on disk\l" fillcolor="#f6f8fa" color="#c7d0da"]
+  ck   [label="CHECKPOINT\lcheckpoint_lsn\l" fillcolor="#dbe9f8" penwidth=1.6]
+  new  [label="records since checkpoint\lrecovery replays these\l"
+        fillcolor="#eaf5ea" color="#2f7d32" penwidth=1.5]
+
+  old -> ck -> new
+}

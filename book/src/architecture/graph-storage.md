@@ -26,45 +26,23 @@ How do you store a graph in a B+Tree (which is fundamentally a key-value store)?
 
 The key insight: **decompose the graph into multiple B+Trees, each optimized for a specific access pattern.**
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Graph Storage Layer                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
-│  │   SYMBOLS    │  │    NODES     │  │    EDGES     │           │
-│  │   B+Tree     │  │   B+Tree     │  │   B+Tree     │           │
-│  │              │  │              │  │              │           │
-│  │ string → id  │  │ node_id →    │  │ composite    │           │
-│  │ id → string  │  │   NodeData   │  │ key → data   │           │
-│  └──────────────┘  └──────────────┘  └──────────────┘           │
-│                                                                  │
-│  ┌──────────────┐                                               │
-│  │ LABEL_INDEX  │                                               │
-│  │   B+Tree     │                                               │
-│  │              │                                               │
-│  │ (label,node) │                                               │
-│  │    → ∅       │                                               │
-│  └──────────────┘                                               │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+<img class="diagram diagram-md" src="../assets/diagrams/graph-storage-btrees.svg"
+     alt="The graph storage layer decomposed into four B+Trees: SYMBOLS mapping strings to ids and back, NODES mapping node id to node data, EDGES keyed by a composite key, and LABEL_INDEX mapping a label and node pair to an empty value">
 
 ## String Interning (Symbol Table)
 
 Graphs have lots of repeated strings: label names, property keys, edge types. Storing "Person" thousands of times wastes space. Instead, we **intern** strings.
 
-```
-String Interning:
+| Interned string | Symbol ID |
+|-----------------|----------:|
+| `"Person"` | 1000 |
+| `"Employee"` | 1001 |
+| `"name"` | 1002 |
+| `"KNOWS"` | 1003 |
 
-  "Person"  ──────►  1000
-  "Employee" ─────►  1001
-  "name"    ──────►  1002
-  "KNOWS"   ──────►  1003
-
-  Now instead of storing "Person" (6 bytes),
-  we store 1000 (2 bytes)
-```
+Storing `"Person"` costs 6 bytes every time it appears; storing the symbol `1000`
+costs 2. On a graph with millions of nodes carrying a handful of labels each, that
+is most of the property storage.
 
 The Symbol Table uses two B+Trees:
 
@@ -111,32 +89,36 @@ NODES B+Tree:
 
 ### NodeData Format
 
-```
-┌────────────────────────────────────────────────────────────┐
-│ num_labels: u16                                            │
-│ labels: [symbol_id: u16] × num_labels                     │
-│ num_properties: u16                                        │
-│ properties: [PropertyEntry] × num_properties              │
-└────────────────────────────────────────────────────────────┘
+**NodeData**
 
-PropertyEntry:
-┌────────────────────────────────────────────────────────────┐
-│ key_id: u16 (interned string)                              │
-│ value_type: u8                                             │
-│ value_data: variable                                       │
-└────────────────────────────────────────────────────────────┘
+| Field | Type | Notes |
+|-------|------|-------|
+| `num_labels` | u16 | |
+| `labels` | u16 × `num_labels` | Interned symbol ids |
+| `num_properties` | u16 | |
+| `properties` | `PropertyEntry` × `num_properties` | |
 
-Value Types:
-  0 = Null
-  1 = Bool (1 byte: 0 or 1)
-  2 = Int64 (8 bytes, little-endian)
-  3 = Float64 (8 bytes, IEEE 754)
-  4 = String (u32 length + bytes)
-  5 = Bytes (u32 length + bytes)
-  6 = Vector (u32 length + f32 values)
-  7 = List (u32 length + nested values)
-  8 = Map (u32 length + key/value entries)
-```
+**PropertyEntry**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `key_id` | u16 | Interned string id |
+| `value_type` | u8 | See the table below |
+| `value_data` | variable | Encoding depends on `value_type` |
+
+**Value types**
+
+| Code | Type | Encoding |
+|-----:|------|----------|
+| 0 | Null | No payload |
+| 1 | Bool | 1 byte, 0 or 1 |
+| 2 | Int64 | 8 bytes, little-endian |
+| 3 | Float64 | 8 bytes, IEEE 754 |
+| 4 | String | u32 length, then bytes |
+| 5 | Bytes | u32 length, then bytes |
+| 6 | Vector | u32 length, then f32 values |
+| 7 | List | u32 length, then nested values |
+| 8 | Map | u32 length, then key/value entries |
 
 Node records are serialized into heap buffers sized from the exact labels and
 properties being written. The old fixed 4 KiB serialization buffer is no longer
@@ -204,17 +186,21 @@ lets the storage layer restore or delete the exact edge during WAL recovery.
 
 ### Key Format
 
-```
-Edge Key (27 bytes, big-endian for lexicographic ordering):
-┌──────────────────────────────────────────────────────────────────────┐
-│ source_id: u64 │ direction: u8 │ type_id: u16 │ target_id: u64 │ edge_id: u64 │
-│   (8 bytes)    │   (1 byte)    │  (2 bytes)   │   (8 bytes)    │  (8 bytes)   │
-└──────────────────────────────────────────────────────────────────────┘
+Edge keys are 27 bytes, stored big-endian so that byte order matches sort order
+and a prefix scan on `source_id` returns all edges out of a node.
 
-Direction:
-  0 = Outgoing (source → target)
-  1 = Incoming (target ← source)
-```
+| Offset | Size | Field |
+|--------|------|-------|
+| 0–7 | 8 B | `source_id: u64` |
+| 8 | 1 B | `direction: u8` |
+| 9–10 | 2 B | `type_id: u16` — interned edge type |
+| 11–18 | 8 B | `target_id: u64` |
+| 19–26 | 8 B | `edge_id: u64` |
+
+| `direction` | Meaning |
+|------------:|---------|
+| 0 | Outgoing — source → target |
+| 1 | Incoming — target ← source |
 
 Big-endian encoding ensures keys sort correctly for range scans:
 - All edges from node X are contiguous
