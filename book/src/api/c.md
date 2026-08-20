@@ -116,6 +116,31 @@ typedef struct {
 } lattice_open_options;
 ```
 
+### Newer Open Options
+
+`lattice_open_options` cannot grow without breaking every program compiled
+against the old size, so newer options come as new structs. Each starts with its
+own size, which is how the library knows which version you compiled against.
+
+```c
+lattice_open_options_v3 options = LATTICE_OPEN_OPTIONS_V3_DEFAULT;
+options.create = true;
+options.enable_vector = true;
+options.vector_dimensions = 1536;
+options.enable_adjacency_cache = true;
+
+lattice_database* db;
+lattice_open_v3("graph.lattice", &options, &db);
+```
+
+Use `lattice_open_v2` with `lattice_open_options_v2`, which adds `enable_wal` to
+the original set.
+`lattice_open_options_v3` adds `enable_adjacency_cache`, which keeps an
+in-memory map of which nodes connect to which and speeds up traversal.
+
+Always initialise from the matching `_DEFAULT` macro rather than zeroing the
+struct yourself, because `struct_size` has to be set correctly.
+
 ## Transaction Operations
 
 ```c
@@ -209,9 +234,49 @@ lattice_nodes_find_by_label_property(
 lattice_free_node_ids(ids, count);
 ```
 
+Drop an index with `lattice_node_property_index_drop(db, "Person", "email")`.
+Lookups against it start returning `LATTICE_ERROR_UNSUPPORTED` again once it is
+gone.
+
 Edge equivalents are `lattice_edge_property_index_create()`,
 `lattice_edge_property_index_drop()`, and
 `lattice_edges_find_by_type_property()`.
+
+See [Property Indexes](../guides/property-indexes.md) for when an index is worth
+adding and which queries the planner can use one for.
+
+### Add and Remove Labels
+
+A node's labels can change after it is created:
+
+```c
+lattice_node_add_label(txn, node_id, "Employee");
+lattice_node_remove_label(txn, node_id, "Candidate");
+```
+
+### Find Nodes by Label
+
+Get every node currently carrying a label. An unknown label is not an error; you
+get a count of zero.
+
+```c
+lattice_node_id* ids;
+size_t count;
+lattice_get_nodes_by_label(db, "Person", 6, &ids, &count);
+// ... use ids ...
+lattice_free_node_ids(ids, count);
+```
+
+Use the `_txn` form to see the label as it looks inside a transaction, including
+changes that transaction has made but not yet committed:
+
+```c
+lattice_get_nodes_by_label_txn(txn, "Person", 6, &ids, &count);
+lattice_get_all_nodes_txn(txn, &ids, &count);   // every visible node
+```
+
+You own the returned array either way and must release it with
+`lattice_free_node_ids`.
 
 ## Edge Operations
 
@@ -379,6 +444,113 @@ lattice_hash_embed_free(vector, dims);
 lattice_embedding_client_free(client);
 ```
 
+## Durable Streams
+
+A stream is an append-only log stored inside the same database file. You publish
+records to it, and consumers read forward from wherever they left off. Because
+the log lives in the database, a record published in a transaction becomes
+visible exactly when that transaction commits, and never if it rolls back.
+
+See [Durable Streams](../guides/durable-streams.md) for what they are useful for.
+
+### Publishing
+
+```c
+lattice_value payload = {
+    .type = LATTICE_VALUE_STRING,
+    .data.string_val = { "user signed up", 14 }
+};
+
+lattice_stream_publish(txn, "events", 6, "signup", 6, &payload);
+```
+
+Streams are created the first time you publish to one, so there is no separate
+setup step. Passing `NULL` and `0` for the kind uses `"message"`. Names starting
+with `__lattice_` are reserved for internal use.
+
+If you need the sequence number the record was given, use the longer name:
+
+```c
+uint64_t sequence;
+lattice_stream_publish_get_sequence(txn, "events", 6, NULL, 0, &payload, &sequence);
+```
+
+That sequence is only durable once the transaction commits.
+
+### Reading
+
+Reading happens on the database rather than inside a transaction. You pass the
+sequence you last saw, and get back the records after it:
+
+```c
+lattice_stream_batch* batch;
+lattice_stream_read(db, "events", 6, /* after_sequence */ 0, /* limit */ 100,
+                    /* timeout_ms */ 1000, &batch);
+
+size_t n = lattice_stream_batch_count(batch);
+for (size_t i = 0; i < n; i++) {
+    uint64_t sequence;
+    const char* kind;
+    size_t kind_len;
+    const lattice_value* payload;
+
+    lattice_stream_batch_get(batch, i, &sequence, &kind, &kind_len, &payload);
+    // kind and payload are borrowed from the batch
+}
+
+lattice_stream_batch_free(batch);
+```
+
+Two things to be careful with. The kind and payload pointers belong to the
+batch, so copy anything you need to keep before calling
+`lattice_stream_batch_free`. And reading does not record how far you got; that
+is a separate step, described below.
+
+`timeout_ms` is how long to wait when there is nothing new. It wakes early if
+another part of the same process commits a record, which makes it useful for a
+consumer loop that should react promptly without spinning.
+
+To find out where a stream currently ends:
+
+```c
+uint64_t last;
+lattice_stream_get_last_sequence(db, "events", 6, &last);   // 0 if empty
+```
+
+### Remembering your place
+
+Reading deliberately does not commit an offset, because that would mean losing a
+record if your program stopped between reading and handling it. Store the offset
+yourself once the work is actually done:
+
+```c
+lattice_stream_set_offset(txn, "events", 6, "billing-worker", 14, sequence);
+```
+
+Because that happens in a transaction, the offset and whatever else the
+transaction wrote either both land or both do not.
+
+To pick up where a consumer left off:
+
+```c
+bool exists;
+uint64_t sequence;
+lattice_stream_get_offset(db, "events", 6, "billing-worker", 14, &exists, &sequence);
+```
+
+`exists` is false the first time a consumer runs, which is when you start from
+the beginning.
+
+### Discarding old records
+
+Once every consumer is past a point, the records before it can go:
+
+```c
+lattice_stream_trim(txn, "events", 6, /* through_sequence */ 5000);
+```
+
+Nothing trims automatically. A stream you never trim grows forever.
+
 ## Query Operations
 
 Queries use a prepare/bind/execute pattern:
@@ -423,6 +595,67 @@ lattice_commit(txn);
 lattice_query_free(query);
 ```
 
+### Finding Out What Went Wrong
+
+When `lattice_query_prepare` or `lattice_query_execute` fails, the return code
+tells you that something failed but not what. These functions describe the
+failure, and they read from the query handle:
+
+```c
+if (lattice_query_prepare(db, cypher, &query) != LATTICE_OK) {
+    printf("%s: %s\n",
+           lattice_query_last_error_code(query),      // e.g. "invalid_operator_types"
+           lattice_query_last_error_message(query));  // human-readable text
+
+    if (lattice_query_last_error_has_location(query)) {
+        printf("  at line %u, column %u, length %u\n",
+               lattice_query_last_error_line(query),
+               lattice_query_last_error_column(query),
+               lattice_query_last_error_length(query));
+    }
+}
+```
+
+The location is what lets you point at the offending part of the query, the way
+the `lattice` command-line tool underlines it.
+
+`lattice_query_last_error_stage` tells you how far the query got:
+
+```c
+LATTICE_QUERY_STAGE_NONE       // 0 - no error
+LATTICE_QUERY_STAGE_PARSE      // 1 - the text is not valid Cypher
+LATTICE_QUERY_STAGE_SEMANTIC   // 2 - it parses, but does not make sense
+LATTICE_QUERY_STAGE_PLAN       // 3 - no execution plan could be built
+LATTICE_QUERY_STAGE_EXECUTION  // 4 - it failed while running
+```
+
+The distinction is useful when deciding whether to blame the query text or the
+data: a parse or semantic failure will fail again no matter what the database
+contains, while an execution failure might not.
+
+The returned strings belong to the query handle and stay valid until you prepare
+something else on it or free it.
+
+## Searching Inside a Transaction
+
+Vector and full-text search have `_txn` variants that see the transaction's own
+uncommitted changes, where the plain forms see only committed data. Use these
+when you have just written something and need to search it in the same
+transaction.
+
+```c
+lattice_vector_search_txn(txn, query_vector, 128, /* k */ 10,
+                          /* ef_search */ 64, &vector_result);
+
+lattice_fts_search_txn(txn, "graph database", 14, /* limit */ 20, &fts_result);
+
+lattice_fts_search_fuzzy_txn(txn, "databse", 7, /* limit */ 20,
+                             /* max_distance */ 2, /* min_term_length */ 4,
+                             &fts_result);
+```
+
+Results are freed the same way as their non-transactional equivalents.
+
 ## Query Cache
 
 ```c
@@ -443,4 +676,14 @@ const char* version = lattice_version();  // e.g. "0.10.0"
 
 // Get error message
 const char* msg = lattice_error_message(LATTICE_ERROR_NOT_FOUND);
+```
+
+### Releasing ID Arrays
+
+Anything that hands you an array of IDs hands you ownership of it. Node IDs and
+edge IDs have separate release functions, and they are not interchangeable:
+
+```c
+lattice_free_node_ids(node_ids, count);
+lattice_free_edge_ids(edge_ids, count);
 ```
