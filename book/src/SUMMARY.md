@@ -27,6 +27,7 @@
 - [Durable Streams](./guides/durable-streams.md)
 - [Data Export](./guides/data-export.md)
 - [Transactions and Durability](./guides/transactions.md)
+- [Property Indexes](./guides/property-indexes.md)
 - [Performance Tuning](./guides/performance-tuning.md)
 
 # Cypher Query Language
@@ -51,6 +52,7 @@
 - [C API](./api/c.md)
 - [Python](./api/python.md)
 - [TypeScript / Node.js](./api/typescript.md)
+- [Go](./api/go.md)
 
 # Architecture
 
