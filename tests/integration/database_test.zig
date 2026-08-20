@@ -2546,9 +2546,15 @@ test "database: explicit property indexes track direct and transactional mutatio
         defer allocator.free(edge_ids);
         try std.testing.expectEqualSlices(u64, &.{edge_id}, edge_ids);
 
-        // Prove the planner selects the property index for inline and WHERE
-        // equality predicates: temporarily hide both nodes from the ordinary
-        // label index.
+        // Exercise the planner's inline, WHERE, reversed, conjunction, and
+        // disjunction paths against an indexed property.
+        //
+        // These entries are removed to keep the label index consistent with the
+        // rest of the test, but note that they do not isolate the property
+        // index: LabelScan resolves nodes through getNodesByLabelIdInTxn, which
+        // walks visible nodes and checks each node's own label list rather than
+        // consulting label_index. Distinguishing an index scan from a label scan
+        // needs a plan assertion, not a hidden row.
         const person_id = try db.symbol_table.lookup("Person");
         try db.label_index.remove(person_id, alice);
         try db.label_index.remove(person_id, bob);
@@ -2591,13 +2597,15 @@ test "database: explicit property indexes track direct and transactional mutatio
             defer conjunction_query.deinit();
             try std.testing.expectEqual(@as(usize, 1), conjunction_query.rowCount());
 
-            // An OR cannot safely constrain the scan to either branch.
+            // An OR cannot safely constrain the scan to either branch, so this
+            // falls back to a label scan and both people match their own
+            // address.
             var disjunction_query = try db.queryWithParams(
                 "MATCH (n:Person) WHERE n.email = $email OR n.email = \"bob@example.com\" RETURN n",
                 &params,
             );
             defer disjunction_query.deinit();
-            try std.testing.expectEqual(@as(usize, 0), disjunction_query.rowCount());
+            try std.testing.expectEqual(@as(usize, 2), disjunction_query.rowCount());
         }
 
         try db.removeEdgePropertyById(null, edge_id, "since");

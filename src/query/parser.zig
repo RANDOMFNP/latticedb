@@ -1282,7 +1282,9 @@ pub const Parser = struct {
             return self.makeUnary(.not, operand, loc);
         }
 
-        if (self.match(.minus)) {
+        // The lexer emits .dash for '-'. Relationship patterns consume it
+        // directly; in an expression it is negation or subtraction.
+        if (self.match(.dash)) {
             const operand = self.parsePrecedence(.unary) orelse return null;
             return self.makeUnary(.neg, operand, loc);
         }
@@ -1458,7 +1460,7 @@ pub const Parser = struct {
             .eq, .neq, .kw_in, .kw_contains => .equality,
             .kw_starts, .kw_ends => .equality,
             .lt, .lte, .gt, .gte, .vector_distance, .fts_match => .comparison,
-            .plus, .minus => .term,
+            .plus, .dash => .term,
             .star, .slash, .percent => .factor,
             .caret => .power,
             .dot => .primary,
@@ -1515,9 +1517,13 @@ pub const Parser = struct {
             self.errorAtCurrent("Expected operator");
             return null;
         };
+        // Read the operator's precedence before consuming it. Reading it after
+        // the advance() below returns the precedence of whatever token follows
+        // the operator instead, which lets the right-hand side swallow operators
+        // that bind less tightly: `a > 1 AND b = 2` parsed as `a > (1 AND b = 2)`.
+        const prec = self.getInfixPrecedence();
         self.advance();
 
-        const prec = self.getInfixPrecedence();
         const next_prec = self.getNextPrecedence(prec);
         const right = self.parsePrecedence(next_prec) orelse return null;
 
@@ -1550,7 +1556,7 @@ pub const Parser = struct {
             .kw_in => .in_,
             .kw_contains => .contains,
             .plus => .add,
-            .minus => .sub,
+            .dash => .sub,
             .star => .mul,
             .slash => .div,
             .percent => .mod,
