@@ -27,7 +27,7 @@ This is the **write-ahead** rule: log first, then data.
 
 The WAL relies on a key property: **sequential append is much safer than random writes**.
 
-<img class="diagram diagram-md" src="../assets/diagrams/wal-sequential-append.svg"
+<img class="diagram" src="../assets/diagrams/wal-sequential-append.svg"
      alt="Writing data pages means three separate seeks to scattered offsets. Writing the WAL means appending at a single position that only ever moves forward">
 
 With random writes, the disk head jumps around. A crash can leave any combination of pages in inconsistent states.
@@ -128,7 +128,7 @@ Why? **Rollback**. To abort transaction 1, follow the chain backward, undoing ea
 
 ## Write Flow
 
-<img class="diagram diagram-md" src="../assets/diagrams/wal-write-flow.svg"
+<img class="diagram" src="../assets/diagrams/wal-write-flow.svg"
      alt="A write flows from the application to a transaction, then to the WAL manager which assigns an LSN, builds a record and appends it to the frame buffer. A full buffer flushes the frame; a commit flushes the frame and calls fsync, after which it is safe to return to the application">
 
 The key insight: we buffer multiple records in memory, only hitting disk when:
@@ -229,7 +229,7 @@ This catches:
 
 The WAL header stores the database file's UUID:
 
-<img class="diagram diagram-sm" src="../assets/diagrams/wal-uuid-binding.svg"
+<img class="diagram" src="../assets/diagrams/wal-uuid-binding.svg"
      alt="The database file header and the WAL header both carry the UUID ABC123, and the two must match before the WAL is replayed">
 
 This prevents accidentally using database A's WAL with database B. The UUID is generated randomly when the database is created.

@@ -1,5 +1,5 @@
-<svg
- viewBox="0.00 0.00 616.00 87.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg width="701" height="116"
+ viewBox="0.00 0.00 526.00 87.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 83.42)">
 <title>page_manager_file_layout</title>
 <!-- p0 -->
@@ -37,12 +37,5 @@
 <text xml:space="preserve" text-anchor="start" x="421.38" y="-16.01" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">offset 12288</text>
 </g>
 <!-- p2&#45;&gt;p3 -->
-<!-- p4 -->
-<g id="node5" class="node">
-<title>p4</title>
-<polygon fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" points="608.22,-72.42 554.22,-72.42 554.22,-7 608.22,-7 608.22,-72.42"/>
-<text xml:space="preserve" text-anchor="start" x="570.06" y="-49.01" font-family="Menlo,Consolas,monospace" font-size="11.00" fill="#1a1a1a">…</text>
-</g>
-<!-- p3&#45;&gt;p4 -->
 </g>
 </svg>

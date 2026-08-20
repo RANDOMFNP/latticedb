@@ -19,7 +19,7 @@ RAM is 1,000-100,000x faster than disk. If we can keep hot pages in RAM, perform
 
 ## Architecture
 
-<img class="diagram diagram-md" src="../assets/diagrams/buffer-pool-frames.svg"
+<img class="diagram" src="../assets/diagrams/buffer-pool-frames.svg"
      alt="The buffer pool: a page table mapping page ids to frame ids sits above a row of six frames, each recording the page it holds, its pin count, its dirty flag and its use count. Frames 1 and 3 are free">
 
 ## The Frame
@@ -128,7 +128,7 @@ When the buffer pool is full, we need to evict a page to make room. We use the C
 
 Imagine the frames arranged in a circle with a clock hand:
 
-<img class="diagram diagram-md" src="../assets/diagrams/buffer-pool-clock.svg"
+<img class="diagram" src="../assets/diagrams/buffer-pool-clock.svg"
      alt="Four frames arranged in a ring. The clock hand points at frame 1, which has a use count of zero and a pin count of zero and is therefore the eviction candidate; frames 3 and 4 have non-zero use counts and are skipped">
 
 **To find a victim:**

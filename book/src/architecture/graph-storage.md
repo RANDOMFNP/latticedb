@@ -26,7 +26,7 @@ How do you store a graph in a B+Tree (which is fundamentally a key-value store)?
 
 The key insight: **decompose the graph into multiple B+Trees, each optimized for a specific access pattern.**
 
-<img class="diagram diagram-md" src="../assets/diagrams/graph-storage-btrees.svg"
+<img class="diagram" src="../assets/diagrams/graph-storage-btrees.svg"
      alt="The graph storage layer decomposed into four B+Trees: SYMBOLS mapping strings to ids and back, NODES mapping node id to node data, EDGES keyed by a composite key, and LABEL_INDEX mapping a label and node pair to an empty value">
 
 ## String Interning (Symbol Table)

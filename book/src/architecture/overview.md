@@ -4,7 +4,7 @@ This section explains how LatticeDB's storage engine works, from the ground up. 
 
 ## The Stack
 
-<img class="diagram diagram-md" src="../assets/diagrams/engine-stack.svg"
+<img class="diagram" src="../assets/diagrams/engine-stack.svg"
      alt="The engine stack from top to bottom: the application calls the transaction manager, which drives the B+Tree, write-ahead log and checkpointer; those share the buffer pool, which sits on the page manager, the virtual file system, and finally the operating system">
 
 ## Chapters
@@ -38,7 +38,7 @@ This section explains how LatticeDB's storage engine works, from the ground up. 
 
 We don't deserialize pages into objects. Instead, we read/write bytes directly in page buffers. This is "zero-copy" - no intermediate representations, no serialization overhead.
 
-<img class="diagram diagram-md" src="../assets/diagrams/zero-copy-pages.svg"
+<img class="diagram" src="../assets/diagrams/zero-copy-pages.svg"
      alt="Traditional access deserialises page bytes into an in-memory object, modifies it, and serialises back. LatticeDB modifies the page bytes in place through calculated offsets, with no intermediate object">
 
 ### Everything is Pages

@@ -179,7 +179,7 @@ COMMIT;
 
 ### How Savepoints Work
 
-<img class="diagram diagram-md" src="../assets/diagrams/savepoint-stack.svg"
+<img class="diagram" src="../assets/diagrams/savepoint-stack.svg"
      alt="A savepoint named before_orders records lsn 3 and undo position 0. The undo log holds two inserts at positions 1 and 2, and rolling back to the savepoint truncates the log back to the recorded undo position">
 
 When we rollback to savepoint:
@@ -293,7 +293,7 @@ try tm.commit(&txn);  // or tm.abort(&txn)
 
 ## Integration
 
-<img class="diagram diagram-md" src="../assets/diagrams/txn-manager-integration.svg"
+<img class="diagram" src="../assets/diagrams/txn-manager-integration.svg"
      alt="The layering: the application calls TxnManager, which handles transaction lifecycle, prev_lsn chains and active transaction tracking; TxnManager calls WalManager for logging and fsync on commit; below that sit the buffer pool and B+Tree holding the data">
 
 The Transaction Manager is the **coordinator** - it doesn't store data itself, but ensures that all operations follow ACID rules by orchestrating the WAL, tracking state, and enforcing invariants.

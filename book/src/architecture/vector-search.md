@@ -4,7 +4,7 @@
 
 Lattice provides approximate nearest neighbor (ANN) search using the HNSW (Hierarchical Navigable Small World) algorithm. This enables semantic search over high-dimensional embedding vectors—a core requirement for AI/RAG applications.
 
-<img class="diagram diagram-sm" src="../assets/diagrams/vector-search-stack.svg"
+<img class="diagram" src="../assets/diagrams/vector-search-stack.svg"
      alt="The vector search stack: an optional EmbeddingClient produces float32 vectors, the HnswIndex provides a multi-layer graph with logarithmic search, and VectorStorage persists vectors in pages backed by the buffer pool">
 
 ## Embedding Generation
@@ -105,7 +105,7 @@ HNSW (Hierarchical Navigable Small World) is a graph-based algorithm for approxi
 
 ### How HNSW Works
 
-<img class="diagram diagram-md" src="../assets/diagrams/hnsw-layers.svg"
+<img class="diagram" src="../assets/diagrams/hnsw-layers.svg"
      alt="An HNSW index drawn as three horizontal layers. Layer 2 holds only nodes A and D with a single long-range link, layer 1 holds A through E, and layer 0 holds every vector densely connected. Dashed lines show the descent from each layer to the one below">
 
 - Upper layers have exponentially fewer nodes (sparse)

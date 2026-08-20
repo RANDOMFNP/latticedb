@@ -8,7 +8,7 @@ Full-text search allows you to find documents containing specific words or phras
 
 The FTS system consists of five components:
 
-<img class="diagram diagram-md" src="../assets/diagrams/fts-pipeline.svg"
+<img class="diagram" src="../assets/diagrams/fts-pipeline.svg"
      alt="The full-text search pipeline: the tokenizer turns a string into tokens, the dictionary B+Tree maps each token to a token id, the posting list pages hold document ids with term frequencies, and the BM25 scorer produces ranked results">
 
 ## 1. Tokenizer
@@ -31,7 +31,7 @@ Notice "The", "the", and "over" are missing—they're **stop words**.
 
 ### How It Works
 
-<img class="diagram diagram-md" src="../assets/diagrams/fts-tokenize.svg"
+<img class="diagram" src="../assets/diagrams/fts-tokenize.svg"
      alt="Tokenizing the string Hello, World! This is a TEST. Step one splits on non-alphanumeric characters, step two applies a length filter dropping the single letter a, step three lowercases, and step four drops the stop words this and is, leaving hello, world and test with their positions">
 
 ### Stop Words
@@ -253,7 +253,7 @@ Result: [0xAC, 0x02] (2 bytes instead of 8)
 
 When a posting list exceeds one page, it chains to overflow pages:
 
-<img class="diagram diagram-md" src="../assets/diagrams/fts-posting-overflow.svg"
+<img class="diagram" src="../assets/diagrams/fts-posting-overflow.svg"
      alt="Page 42 holds the first 200 posting entries and its next_page field points to page 87, which holds entries 201 to 250 and has next_page 0 marking the end of the chain">
 
 ### Skip Pointers
@@ -415,12 +415,12 @@ Total Score for Document 42 = 4.96 + 5.10 = 10.06
 
 ### Single-Term Search
 
-<img class="diagram diagram-md" src="../assets/diagrams/fts-search-single.svg"
+<img class="diagram" src="../assets/diagrams/fts-search-single.svg"
      alt="Single-term search for database: tokenize the query, look the token up in the dictionary to get token id 3 with doc_freq 50 on posting page 44, walk that posting list computing a BM25 score per document, then sort by score and return the top K">
 
 ### Multi-Term Search (AND Semantics)
 
-<img class="diagram diagram-md" src="../assets/diagrams/fts-search-and.svg"
+<img class="diagram" src="../assets/diagrams/fts-search-and.svg"
      alt="Multi-term AND search: tokenize into database and optimization, walk each posting list accumulating both a score and a term count per document, keep only documents whose term count equals the number of query terms, then sort and return the top K">
 
 ### OR Search
@@ -435,7 +435,7 @@ const results = try fts.searchOr("mysql postgres", 10);
 const results = try fts.searchWithMode("mysql postgres", .@"or", 10);
 ```
 
-<img class="diagram diagram-md" src="../assets/diagrams/fts-search-or.svg"
+<img class="diagram" src="../assets/diagrams/fts-search-or.svg"
      alt="OR-mode search for mysql postgres: tokenize, walk each posting list accumulating scores with no term-count filtering, then sort by accumulated score so documents matching both terms rank higher">
 
 ### NOT Search (Exclusions)
@@ -450,7 +450,7 @@ const results = try fts.searchWithMode("database -mysql", .@"and", 10);
 const results = try fts.searchWithMode("database -mysql -oracle", .@"and", 10);
 ```
 
-<img class="diagram diagram-md" src="../assets/diagrams/fts-search-exclusion.svg"
+<img class="diagram" src="../assets/diagrams/fts-search-exclusion.svg"
      alt="Exclusion search for database minus mysql: parse into positive terms and excluded terms, search the positive terms for candidates, build the set of document ids containing mysql, then remove those candidates">
 
 ### Phrase Search
@@ -728,7 +728,7 @@ for (matches) |match| {
 
 ### indexDocument(doc_id, text)
 
-<img class="diagram diagram-md" src="../assets/diagrams/fts-index-document.svg"
+<img class="diagram" src="../assets/diagrams/fts-index-document.svg"
      alt="Indexing document 42 with the text The quick database optimization guide: tokenize into four terms, count their frequencies, then for each term get or create a dictionary entry, allocate a posting page if needed, append the posting and increment doc_freq, then store the document length of 4 and update the average document length">
 
 ---

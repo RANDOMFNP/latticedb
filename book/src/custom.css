@@ -45,7 +45,10 @@ blockquote {
 
 .diagram {
   display: block;
-  width: 100%;
+  /* Each SVG carries its own pixel width and height, so it renders at its
+     natural size. max-width lets a diagram wider than the column shrink to fit
+     without ever being stretched up -- setting width:100% here would blow a
+     narrow, tall diagram up to the full column width and multiply its height. */
   max-width: 100%;
   height: auto;
   margin: 1.6em auto;
@@ -55,10 +58,6 @@ blockquote {
   border: 1px solid #dbe3ec;
   border-radius: 8px;
 }
-
-/* Narrow diagrams should not stretch to fill the column. */
-.diagram-sm { max-width: 460px; }
-.diagram-md { max-width: 660px; }
 
 figure.diagram-figure {
   margin: 1.6em 0;

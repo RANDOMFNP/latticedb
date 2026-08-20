@@ -1,65 +1,44 @@
-<svg
- viewBox="0.00 0.00 654.00 140.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 135.97)">
+<svg width="491" height="269"
+ viewBox="0.00 0.00 368.00 202.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 198.31)">
 <title>graph_storage_btrees</title>
-<!-- layer -->
-<g id="node1" class="node">
-<title>layer</title>
-<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M598.4,-131.97C598.4,-131.97 46.4,-131.97 46.4,-131.97 40.4,-131.97 34.4,-125.97 34.4,-119.97 34.4,-119.97 34.4,-107.97 34.4,-107.97 34.4,-101.97 40.4,-95.97 46.4,-95.97 46.4,-95.97 598.4,-95.97 598.4,-95.97 604.4,-95.97 610.4,-101.97 610.4,-107.97 610.4,-107.97 610.4,-119.97 610.4,-119.97 610.4,-125.97 604.4,-131.97 598.4,-131.97"/>
-<text xml:space="preserve" text-anchor="middle" x="322.4" y="-108.94" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Graph Storage Layer</text>
+<g id="clust1" class="cluster">
+<title>cluster_layer</title>
+<path fill="#f7fafd" stroke="#4a90d9" stroke-width="1.3" d="M20,-8C20,-8 340,-8 340,-8 346,-8 352,-14 352,-20 352,-20 352,-174.31 352,-174.31 352,-180.31 346,-186.31 340,-186.31 340,-186.31 20,-186.31 20,-186.31 14,-186.31 8,-180.31 8,-174.31 8,-174.31 8,-20 8,-20 8,-14 14,-8 20,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="180" y="-169.96" font-family="Helvetica,Arial,sans-serif" font-size="13.00" fill="#1a1a1a">Graph Storage Layer</text>
 </g>
 <!-- symbols -->
-<g id="node2" class="node">
+<g id="node1" class="node">
 <title>symbols</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M124.8,-59.97C124.8,-59.97 12,-59.97 12,-59.97 6,-59.97 0,-53.97 0,-47.97 0,-47.97 0,-12 0,-12 0,-6 6,0 12,0 12,0 124.8,0 124.8,0 130.8,0 136.8,-6 136.8,-12 136.8,-12 136.8,-47.97 136.8,-47.97 136.8,-53.97 130.8,-59.97 124.8,-59.97"/>
-<text xml:space="preserve" text-anchor="middle" x="68.4" y="-39.21" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">SYMBOLS</text>
-<text xml:space="preserve" text-anchor="middle" x="68.4" y="-26.46" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">string → id</text>
-<text xml:space="preserve" text-anchor="middle" x="68.4" y="-12.21" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">id → string</text>
-</g>
-<!-- layer&#45;&gt;symbols -->
-<g id="edge1" class="edge">
-<title>layer&#45;&gt;symbols</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M262.53,-95.37C229.12,-85.37 186.82,-72.39 149.4,-59.97 148.04,-59.52 146.66,-59.06 145.27,-58.59"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="146.25,-56.34 138.84,-56.41 144.68,-60.98 146.25,-56.34"/>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M156,-148.81C156,-148.81 36,-148.81 36,-148.81 30,-148.81 24,-142.81 24,-136.81 24,-136.81 24,-102.28 24,-102.28 24,-96.28 30,-90.28 36,-90.28 36,-90.28 156,-90.28 156,-90.28 162,-90.28 168,-96.28 168,-102.28 168,-102.28 168,-136.81 168,-136.81 168,-142.81 162,-148.81 156,-148.81"/>
+<text xml:space="preserve" text-anchor="middle" x="96" y="-128.77" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">SYMBOLS</text>
+<text xml:space="preserve" text-anchor="middle" x="96" y="-116.02" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">string → id</text>
+<text xml:space="preserve" text-anchor="middle" x="96" y="-101.77" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">id → string</text>
 </g>
 <!-- nodes -->
-<g id="node3" class="node">
+<g id="node2" class="node">
 <title>nodes</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M297.37,-52.84C297.37,-52.84 173.43,-52.84 173.43,-52.84 167.43,-52.84 161.43,-46.84 161.43,-40.84 161.43,-40.84 161.43,-19.13 161.43,-19.13 161.43,-13.13 167.43,-7.12 173.43,-7.12 173.43,-7.12 297.37,-7.12 297.37,-7.12 303.37,-7.12 309.37,-13.12 309.37,-19.12 309.37,-19.12 309.37,-40.84 309.37,-40.84 309.37,-46.84 303.37,-52.84 297.37,-52.84"/>
-<text xml:space="preserve" text-anchor="middle" x="235.4" y="-32.09" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">NODES</text>
-<text xml:space="preserve" text-anchor="middle" x="235.4" y="-19.34" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">node_id → NodeData</text>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M323.52,-141.69C323.52,-141.69 202.47,-141.69 202.47,-141.69 196.47,-141.69 190.47,-135.69 190.47,-129.69 190.47,-129.69 190.47,-109.41 190.47,-109.41 190.47,-103.41 196.47,-97.41 202.47,-97.41 202.47,-97.41 323.52,-97.41 323.52,-97.41 329.52,-97.41 335.52,-103.41 335.52,-109.41 335.52,-109.41 335.52,-129.69 335.52,-129.69 335.52,-135.69 329.52,-141.69 323.52,-141.69"/>
+<text xml:space="preserve" text-anchor="middle" x="263" y="-121.65" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">NODES</text>
+<text xml:space="preserve" text-anchor="middle" x="263" y="-108.9" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">node_id → NodeData</text>
 </g>
-<!-- layer&#45;&gt;nodes -->
-<g id="edge2" class="edge">
-<title>layer&#45;&gt;nodes</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M303.95,-95.58C292.72,-85 278.11,-71.23 265.26,-59.13"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="267.11,-57.5 260.33,-54.48 263.75,-61.07 267.11,-57.5"/>
+<!-- symbols&#45;&gt;nodes -->
+<!-- edges_t -->
+<g id="node3" class="node">
+<title>edges_t</title>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M158.28,-68.28C158.28,-68.28 35.72,-68.28 35.72,-68.28 29.72,-68.28 23.72,-62.28 23.72,-56.28 23.72,-56.28 23.72,-36 23.72,-36 23.72,-30 29.72,-24 35.72,-24 35.72,-24 158.28,-24 158.28,-24 164.28,-24 170.28,-30 170.28,-36 170.28,-36 170.28,-56.28 170.28,-56.28 170.28,-62.28 164.28,-68.28 158.28,-68.28"/>
+<text xml:space="preserve" text-anchor="middle" x="97" y="-48.24" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">EDGES</text>
+<text xml:space="preserve" text-anchor="middle" x="97" y="-35.49" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">composite key → data</text>
 </g>
-<!-- edges -->
-<g id="node4" class="node">
-<title>edges</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M472.12,-52.84C472.12,-52.84 346.68,-52.84 346.68,-52.84 340.68,-52.84 334.68,-46.84 334.68,-40.84 334.68,-40.84 334.68,-19.13 334.68,-19.13 334.68,-13.13 340.68,-7.12 346.68,-7.12 346.68,-7.12 472.12,-7.12 472.12,-7.12 478.12,-7.12 484.12,-13.12 484.12,-19.12 484.12,-19.12 484.12,-40.84 484.12,-40.84 484.12,-46.84 478.12,-52.84 472.12,-52.84"/>
-<text xml:space="preserve" text-anchor="middle" x="409.4" y="-32.09" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">EDGES</text>
-<text xml:space="preserve" text-anchor="middle" x="409.4" y="-19.34" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">composite key → data</text>
-</g>
-<!-- layer&#45;&gt;edges -->
-<g id="edge3" class="edge">
-<title>layer&#45;&gt;edges</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M340.85,-95.58C352.08,-85 366.69,-71.23 379.54,-59.13"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="381.05,-61.07 384.47,-54.48 377.69,-57.5 381.05,-61.07"/>
-</g>
+<!-- symbols&#45;&gt;edges_t -->
 <!-- labels -->
-<g id="node5" class="node">
+<g id="node4" class="node">
 <title>labels</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M633.8,-52.84C633.8,-52.84 521,-52.84 521,-52.84 515,-52.84 509,-46.84 509,-40.84 509,-40.84 509,-19.13 509,-19.13 509,-13.13 515,-7.12 521,-7.12 521,-7.12 633.8,-7.12 633.8,-7.12 639.8,-7.12 645.8,-13.12 645.8,-19.12 645.8,-19.12 645.8,-40.84 645.8,-40.84 645.8,-46.84 639.8,-52.84 633.8,-52.84"/>
-<text xml:space="preserve" text-anchor="middle" x="577.4" y="-32.09" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">LABEL_INDEX</text>
-<text xml:space="preserve" text-anchor="middle" x="577.4" y="-19.34" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">(label, node) → ∅</text>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M324,-68.28C324,-68.28 204,-68.28 204,-68.28 198,-68.28 192,-62.28 192,-56.28 192,-56.28 192,-36 192,-36 192,-30 198,-24 204,-24 204,-24 324,-24 324,-24 330,-24 336,-30 336,-36 336,-36 336,-56.28 336,-56.28 336,-62.28 330,-68.28 324,-68.28"/>
+<text xml:space="preserve" text-anchor="middle" x="264" y="-48.24" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">LABEL_INDEX</text>
+<text xml:space="preserve" text-anchor="middle" x="264" y="-35.49" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">(label, node) → ∅</text>
 </g>
-<!-- layer&#45;&gt;labels -->
-<g id="edge4" class="edge">
-<title>layer&#45;&gt;labels</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M382.62,-95.4C416.22,-85.4 458.78,-72.42 496.4,-59.97 500.19,-58.72 504.07,-57.41 507.98,-56.07"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="508.64,-58.44 514.46,-53.84 507.04,-53.8 508.64,-58.44"/>
-</g>
+<!-- nodes&#45;&gt;labels -->
+<!-- edges_t&#45;&gt;labels -->
 </g>
 </svg>

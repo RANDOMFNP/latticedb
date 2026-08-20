@@ -4,7 +4,7 @@
 
 Lattice executes Cypher queries using the **Volcano iterator model**—a pull-based execution engine where operators form a tree and data flows upward one row at a time. This design enables lazy evaluation, memory efficiency, and composable query plans.
 
-<img class="diagram diagram-md" src="../assets/diagrams/query-pipeline.svg"
+<img class="diagram" src="../assets/diagrams/query-pipeline.svg"
      alt="The query pipeline: a Cypher string passes through the lexer producing tokens, the parser producing an AST, the semantic analyzer producing a validated AST with variable bindings, the planner producing an operator tree, and the executor producing result rows">
 
 ## The Volcano Iterator Model
@@ -34,7 +34,7 @@ pub const Operator = struct {
 
 Data flows **upward** through the operator tree. The root operator "pulls" from its children:
 
-<img class="diagram diagram-sm" src="../assets/diagrams/volcano-operator-tree.svg"
+<img class="diagram" src="../assets/diagrams/volcano-operator-tree.svg"
      alt="A Volcano operator tree. The executor calls next on Limit, which pulls from Project, which pulls from Filter, which pulls from LabelScan, which reads from storage">
 
 When the executor calls `root.next()`:

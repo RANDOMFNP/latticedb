@@ -1,102 +1,56 @@
-<svg
- viewBox="0.00 0.00 728.00 184.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 180.22)">
+<svg width="632" height="79"
+ viewBox="0.00 0.00 474.00 59.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 54.72)">
 <title>fts_pipeline</title>
 <!-- tok -->
 <g id="node1" class="node">
 <title>tok</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M71.43,-73.11C71.43,-73.11 12,-73.11 12,-73.11 6,-73.11 0,-67.11 0,-61.11 0,-61.11 0,-49.11 0,-49.11 0,-43.11 6,-37.11 12,-37.11 12,-37.11 71.43,-37.11 71.43,-37.11 77.43,-37.11 83.43,-43.11 83.43,-49.11 83.43,-49.11 83.43,-61.11 83.43,-61.11 83.43,-67.11 77.43,-73.11 71.43,-73.11"/>
-<text xml:space="preserve" text-anchor="middle" x="41.72" y="-50.09" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Tokenizer</text>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M84.42,-50.72C84.42,-50.72 12,-50.72 12,-50.72 6,-50.72 0,-44.72 0,-38.72 0,-38.72 0,-12 0,-12 0,-6 6,0 12,0 12,0 84.42,0 84.42,0 90.42,0 96.42,-6 96.42,-12 96.42,-12 96.42,-38.72 96.42,-38.72 96.42,-44.72 90.42,-50.72 84.42,-50.72"/>
+<text xml:space="preserve" text-anchor="start" x="20.83" y="-30.96" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="12.00" fill="#1a1a1a">Tokenizer</text>
+<text xml:space="preserve" text-anchor="start" x="14.83" y="-20.86" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280">&quot;hello world&quot; →</text>
+<text xml:space="preserve" text-anchor="start" x="12.96" y="-10.86" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280">[&quot;hello&quot;, &quot;world&quot;]</text>
 </g>
 <!-- dict -->
 <g id="node2" class="node">
 <title>dict</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M226.11,-110.22C226.11,-110.22 164.43,-110.22 164.43,-110.22 158.43,-110.22 152.43,-104.22 152.43,-98.22 152.43,-98.22 152.43,-78 152.43,-78 152.43,-72 158.43,-66 164.43,-66 164.43,-66 226.11,-66 226.11,-66 232.11,-66 238.11,-72 238.11,-78 238.11,-78 238.11,-98.22 238.11,-98.22 238.11,-104.22 232.11,-110.22 226.11,-110.22"/>
-<text xml:space="preserve" text-anchor="middle" x="195.27" y="-89.46" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Dictionary</text>
-<text xml:space="preserve" text-anchor="middle" x="195.27" y="-76.71" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">(B+Tree)</text>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M198.84,-50.72C198.84,-50.72 138.42,-50.72 138.42,-50.72 132.42,-50.72 126.42,-44.72 126.42,-38.72 126.42,-38.72 126.42,-12 126.42,-12 126.42,-6 132.42,0 138.42,0 138.42,0 198.84,0 198.84,0 204.84,0 210.84,-6 210.84,-12 210.84,-12 210.84,-38.72 210.84,-38.72 210.84,-44.72 204.84,-50.72 198.84,-50.72"/>
+<text xml:space="preserve" text-anchor="start" x="139.38" y="-30.96" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="12.00" fill="#1a1a1a">Dictionary</text>
+<text xml:space="preserve" text-anchor="start" x="152.5" y="-20.86" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280">B+Tree</text>
+<text xml:space="preserve" text-anchor="start" x="144.25" y="-10.86" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280">&quot;hello&quot; → 1</text>
 </g>
 <!-- tok&#45;&gt;dict -->
 <g id="edge1" class="edge">
 <title>tok&#45;&gt;dict</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M83.73,-64.04C102.13,-68.05 124.03,-72.82 143.46,-77.05"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="142.92,-79.44 150.28,-78.53 143.96,-74.65 142.92,-79.44"/>
-</g>
-<!-- o1 -->
-<g id="node5" class="node">
-<title>o1</title>
-<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M259.11,-44.22C259.11,-44.22 131.43,-44.22 131.43,-44.22 125.43,-44.22 119.43,-38.22 119.43,-32.22 119.43,-32.22 119.43,-12 119.43,-12 119.43,-6 125.43,0 131.43,0 131.43,0 259.11,0 259.11,0 265.11,0 271.11,-6 271.11,-12 271.11,-12 271.11,-32.22 271.11,-32.22 271.11,-38.22 265.11,-44.22 259.11,-44.22"/>
-<text xml:space="preserve" text-anchor="start" x="135.27" y="-25.36" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">&quot;hello world&quot;</text>
-<text xml:space="preserve" text-anchor="start" x="135.27" y="-12.61" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">→ [&quot;hello&quot;, &quot;world&quot;]</text>
-</g>
-<!-- tok&#45;&gt;o1 -->
-<g id="edge4" class="edge">
-<title>tok&#45;&gt;o1</title>
-<path fill="none" stroke="#c7d0da" stroke-width="1.1" stroke-dasharray="5,2" d="M83.73,-46.18C92.46,-44.28 101.98,-42.21 111.65,-40.1"/>
-<polygon fill="#c7d0da" stroke="#c7d0da" stroke-width="1.1" points="112.02,-42.17 117.43,-38.84 111.12,-38.07 112.02,-42.17"/>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M96.69,-25.36C103.48,-25.36 110.48,-25.36 117.32,-25.36"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="117.2,-27.81 124.2,-25.36 117.2,-22.91 117.2,-27.81"/>
 </g>
 <!-- post -->
 <g id="node3" class="node">
 <title>post</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M390.92,-143.22C390.92,-143.22 320.99,-143.22 320.99,-143.22 314.99,-143.22 308.99,-137.22 308.99,-131.22 308.99,-131.22 308.99,-111 308.99,-111 308.99,-105 314.99,-99 320.99,-99 320.99,-99 390.92,-99 390.92,-99 396.92,-99 402.92,-105 402.92,-111 402.92,-111 402.92,-131.22 402.92,-131.22 402.92,-137.22 396.92,-143.22 390.92,-143.22"/>
-<text xml:space="preserve" text-anchor="middle" x="355.95" y="-122.46" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Posting List</text>
-<text xml:space="preserve" text-anchor="middle" x="355.95" y="-109.71" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">(pages)</text>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M336.51,-50.72C336.51,-50.72 252.84,-50.72 252.84,-50.72 246.84,-50.72 240.84,-44.72 240.84,-38.72 240.84,-38.72 240.84,-12 240.84,-12 240.84,-6 246.84,0 252.84,0 252.84,0 336.51,0 336.51,0 342.51,0 348.51,-6 348.51,-12 348.51,-12 348.51,-38.72 348.51,-38.72 348.51,-44.72 342.51,-50.72 336.51,-50.72"/>
+<text xml:space="preserve" text-anchor="start" x="260.55" y="-30.96" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="12.00" fill="#1a1a1a">Posting List</text>
+<text xml:space="preserve" text-anchor="start" x="258.68" y="-20.86" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280">pages of doc ids</text>
+<text xml:space="preserve" text-anchor="start" x="253.8" y="-10.86" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280">+ term frequencies</text>
 </g>
 <!-- dict&#45;&gt;post -->
 <g id="edge2" class="edge">
 <title>dict&#45;&gt;post</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M238.38,-96.87C257.34,-100.81 279.97,-105.52 300.23,-109.73"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="299.47,-112.07 306.82,-111.1 300.47,-107.28 299.47,-112.07"/>
-</g>
-<!-- o2 -->
-<g id="node6" class="node">
-<title>o2</title>
-<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M392.79,-77.22C392.79,-77.22 319.11,-77.22 319.11,-77.22 313.11,-77.22 307.11,-71.22 307.11,-65.22 307.11,-65.22 307.11,-45 307.11,-45 307.11,-39 313.11,-33 319.11,-33 319.11,-33 392.79,-33 392.79,-33 398.79,-33 404.79,-39 404.79,-45 404.79,-45 404.79,-65.22 404.79,-65.22 404.79,-71.22 398.79,-77.22 392.79,-77.22"/>
-<text xml:space="preserve" text-anchor="start" x="322.95" y="-58.36" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">&quot;hello&quot; → 1</text>
-<text xml:space="preserve" text-anchor="start" x="322.95" y="-45.61" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">&quot;world&quot; → 2</text>
-</g>
-<!-- dict&#45;&gt;o2 -->
-<g id="edge5" class="edge">
-<title>dict&#45;&gt;o2</title>
-<path fill="none" stroke="#c7d0da" stroke-width="1.1" stroke-dasharray="5,2" d="M238.38,-79.35C257.1,-75.46 279.41,-70.82 299.47,-66.65"/>
-<polygon fill="#c7d0da" stroke="#c7d0da" stroke-width="1.1" points="299.67,-68.75 305.12,-65.47 298.82,-64.64 299.67,-68.75"/>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M211.28,-25.36C218.06,-25.36 225.2,-25.36 232.34,-25.36"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="232.01,-27.81 239.01,-25.36 232.01,-22.91 232.01,-27.81"/>
 </g>
 <!-- score -->
 <g id="node4" class="node">
 <title>score</title>
-<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M527.97,-176.22C527.97,-176.22 481.29,-176.22 481.29,-176.22 475.29,-176.22 469.29,-170.22 469.29,-164.22 469.29,-164.22 469.29,-144 469.29,-144 469.29,-138 475.29,-132 481.29,-132 481.29,-132 527.97,-132 527.97,-132 533.97,-132 539.97,-138 539.97,-144 539.97,-144 539.97,-164.22 539.97,-164.22 539.97,-170.22 533.97,-176.22 527.97,-176.22"/>
-<text xml:space="preserve" text-anchor="middle" x="504.63" y="-155.46" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Scorer</text>
-<text xml:space="preserve" text-anchor="middle" x="504.63" y="-142.71" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">(BM25)</text>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M453.93,-50.72C453.93,-50.72 390.51,-50.72 390.51,-50.72 384.51,-50.72 378.51,-44.72 378.51,-38.72 378.51,-38.72 378.51,-12 378.51,-12 378.51,-6 384.51,0 390.51,0 390.51,0 453.93,0 453.93,0 459.93,0 465.93,-6 465.93,-12 465.93,-12 465.93,-38.72 465.93,-38.72 465.93,-44.72 459.93,-50.72 453.93,-50.72"/>
+<text xml:space="preserve" text-anchor="start" x="403.1" y="-30.96" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="12.00" fill="#1a1a1a">Scorer</text>
+<text xml:space="preserve" text-anchor="start" x="409.47" y="-20.86" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280">BM25</text>
+<text xml:space="preserve" text-anchor="start" x="391.47" y="-10.86" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6b7280">ranked results</text>
 </g>
 <!-- post&#45;&gt;score -->
 <g id="edge3" class="edge">
 <title>post&#45;&gt;score</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M403.36,-131.55C421.85,-135.71 442.99,-140.47 461.07,-144.54"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="460.16,-146.84 467.52,-145.99 461.23,-142.06 460.16,-146.84"/>
-</g>
-<!-- o3 -->
-<g id="node7" class="node">
-<title>o3</title>
-<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M556.47,-110.22C556.47,-110.22 452.79,-110.22 452.79,-110.22 446.79,-110.22 440.79,-104.22 440.79,-98.22 440.79,-98.22 440.79,-78 440.79,-78 440.79,-72 446.79,-66 452.79,-66 452.79,-66 556.47,-66 556.47,-66 562.47,-66 568.47,-72 568.47,-78 568.47,-78 568.47,-98.22 568.47,-98.22 568.47,-104.22 562.47,-110.22 556.47,-110.22"/>
-<text xml:space="preserve" text-anchor="start" x="456.63" y="-91.36" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">doc ids with</text>
-<text xml:space="preserve" text-anchor="start" x="456.63" y="-78.61" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">term frequencies</text>
-</g>
-<!-- post&#45;&gt;o3 -->
-<g id="edge6" class="edge">
-<title>post&#45;&gt;o3</title>
-<path fill="none" stroke="#c7d0da" stroke-width="1.1" stroke-dasharray="5,2" d="M403.36,-110.67C412.82,-108.54 422.96,-106.26 433.04,-103.99"/>
-<polygon fill="#c7d0da" stroke="#c7d0da" stroke-width="1.1" points="433.34,-106.08 438.74,-102.71 432.42,-101.98 433.34,-106.08"/>
-</g>
-<!-- o4 -->
-<g id="node8" class="node">
-<title>o4</title>
-<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M708.15,-172.11C708.15,-172.11 616.47,-172.11 616.47,-172.11 610.47,-172.11 604.47,-166.11 604.47,-160.11 604.47,-160.11 604.47,-148.11 604.47,-148.11 604.47,-142.11 610.47,-136.11 616.47,-136.11 616.47,-136.11 708.15,-136.11 708.15,-136.11 714.15,-136.11 720.15,-142.11 720.15,-148.11 720.15,-148.11 720.15,-160.11 720.15,-160.11 720.15,-166.11 714.15,-172.11 708.15,-172.11"/>
-<text xml:space="preserve" text-anchor="start" x="620.31" y="-150.99" font-family="Menlo,Consolas,monospace" font-size="10.00" fill="#1a1a1a">ranked results</text>
-</g>
-<!-- score&#45;&gt;o4 -->
-<g id="edge7" class="edge">
-<title>score&#45;&gt;o4</title>
-<path fill="none" stroke="#c7d0da" stroke-width="1.1" stroke-dasharray="5,2" d="M540.57,-154.11C557.03,-154.11 577.21,-154.11 596.33,-154.11"/>
-<polygon fill="#c7d0da" stroke="#c7d0da" stroke-width="1.1" points="596.21,-156.21 602.21,-154.11 596.21,-152.01 596.21,-156.21"/>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M348.92,-25.36C355.78,-25.36 362.79,-25.36 369.63,-25.36"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="369.5,-27.81 376.5,-25.36 369.5,-22.91 369.5,-27.81"/>
 </g>
 </g>
 </svg>

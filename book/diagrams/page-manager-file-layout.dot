@@ -14,7 +14,6 @@ digraph page_manager_file_layout {
   p1 [label="Page 1\lB+Tree\l\loffset 4096\l"]
   p2 [label="Page 2\lB+Tree\l\loffset 8192\l"]
   p3 [label="Page 3\lFree\l\loffset 12288\l" fillcolor="#f6f8fa" color="#c7d0da"]
-  p4 [label="…\l\l\l" fillcolor="#f6f8fa" color="#c7d0da"]
 
-  p0 -> p1 -> p2 -> p3 -> p4
+  p0 -> p1 -> p2 -> p3
 }

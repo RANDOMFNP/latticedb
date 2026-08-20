@@ -14,8 +14,13 @@ The rendered SVG is post-processed so it behaves in a documentation page:
 
   * the opaque background polygon Graphviz emits is dropped, so the diagram sits
     on whatever surface the page gives it
-  * the fixed ``width``/``height`` attributes are dropped and the ``viewBox`` is
-    kept, so the image scales down on narrow screens instead of overflowing
+  * Graphviz's point-based ``width``/``height`` are converted to pixels, which
+    gives the image a correct intrinsic size. Paired with ``max-width: 100%``
+    in the stylesheet, a diagram renders at its natural size and only ever
+    scales *down* to fit a narrow column -- never up. Dropping these attributes
+    instead leaves the SVG with no intrinsic size, and any ``width: 100%`` rule
+    then stretches a narrow diagram across the whole column, blowing its height
+    up proportionally.
   * the generator comment and DOCTYPE are stripped to keep diffs small
 
 Diagrams are styled for a light plate (see ``.diagram`` in book/src/custom.css),
@@ -40,6 +45,10 @@ GENERATED_COMMENT = re.compile(r"<!--.*?-->\s*", re.S)
 XML_DECL = re.compile(r"<\?xml[^>]*\?>\s*")
 SVG_OPEN = re.compile(r"<svg\b([^>]*)>", re.I)
 SIZE_ATTR = re.compile(r'\s(?:width|height)="[^"]*"', re.I)
+VIEWBOX = re.compile(r'viewBox="[\d.eE+-]+ [\d.eE+-]+ ([\d.eE+-]+) ([\d.eE+-]+)"', re.I)
+
+# Graphviz measures in points; CSS pixels are 96/72 of a point.
+PT_TO_PX = 96 / 72
 # Graphviz emits the canvas fill as the first polygon in the root graph group.
 BACKGROUND_POLYGON = re.compile(
     r'<polygon fill="(?:#ffffff|white)"[^/]*?/>\s*', re.I
@@ -66,10 +75,16 @@ def clean(svg: str) -> str:
         svg = svg[match.end():]
     svg = BACKGROUND_POLYGON.sub("", svg, count=1)
 
-    def strip_size(match: re.Match[str]) -> str:
-        return "<svg" + SIZE_ATTR.sub("", match.group(1)) + ">"
+    def resize(match: re.Match[str]) -> str:
+        attrs = SIZE_ATTR.sub("", match.group(1))
+        box = VIEWBOX.search(attrs)
+        if box is None:
+            return "<svg" + attrs + ">"
+        width = round(float(box.group(1)) * PT_TO_PX)
+        height = round(float(box.group(2)) * PT_TO_PX)
+        return f'<svg width="{width}" height="{height}"' + attrs + ">"
 
-    svg = SVG_OPEN.sub(strip_size, svg, count=1)
+    svg = SVG_OPEN.sub(resize, svg, count=1)
     return svg.strip() + "\n"
 
 

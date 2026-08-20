@@ -100,7 +100,7 @@ For an embedded database like Lattice, the simpler "don't undo" approach works w
 
 Recovery doesn't scan the entire WAL - only from the last checkpoint:
 
-<img class="diagram diagram-md" src="../assets/diagrams/recovery-checkpoint-timeline.svg"
+<img class="diagram" src="../assets/diagrams/recovery-checkpoint-timeline.svg"
      alt="The WAL timeline: old records already flushed to disk, then the checkpoint marking checkpoint_lsn, then the records written since, which are the only ones recovery replays">
 
 The `checkpoint_lsn` in the WAL header marks where recovery begins. The Checkpointer sets this after successfully flushing all dirty pages.
@@ -260,7 +260,7 @@ These are useful for:
 
 ## Recovery Flow Diagram
 
-<img class="diagram diagram-md" src="../assets/diagrams/recovery-flow.svg"
+<img class="diagram" src="../assets/diagrams/recovery-flow.svg"
      alt="Recovery flow on startup: open the WAL file and read checkpoint_lsn, run the analysis phase to track transaction states and build the redo list, run the redo phase applying committed operations and discarding the rest, sync the database file, and the database is ready for use">
 
 ## API

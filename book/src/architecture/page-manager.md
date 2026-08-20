@@ -10,7 +10,7 @@ The Page Manager handles the lowest level of database storage: fixed-size pages.
 
 Every piece of data lives in a 4KB page. This uniformity simplifies everything:
 
-<img class="diagram diagram-md" src="../assets/diagrams/page-manager-file-layout.svg"
+<img class="diagram" src="../assets/diagrams/page-manager-file-layout.svg"
      alt="The database file as a row of fixed 4 KB pages: page 0 is the header at offset 0, pages 1 and 2 hold B+Tree data at offsets 4096 and 8192, page 3 is free at offset 12288">
 
 To read page N: `offset = N * 4096`
@@ -85,7 +85,7 @@ pub const PageType = enum(u8) {
 
 Free pages are linked together in a freelist:
 
-<img class="diagram diagram-md" src="../assets/diagrams/page-manager-freelist.svg"
+<img class="diagram" src="../assets/diagrams/page-manager-freelist.svg"
      alt="The file header holds freelist head 5. Page 5 points to page 3, page 3 points to page 9, and page 9 has next 0, marking the end of the list">
 
 ### Allocating a Page

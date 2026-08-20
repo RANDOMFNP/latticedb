@@ -34,14 +34,14 @@ With 100 keys per node: log100(1M) ≈ 3 levels.
 
 B+Trees store all data in leaf nodes. Internal nodes only contain keys for routing:
 
-<img class="diagram diagram-md" src="../assets/diagrams/btree-structure.svg"
+<img class="diagram" src="../assets/diagrams/btree-structure.svg"
      alt="A B+Tree: one internal node holding the keys 30, 60 and 90 routes to three leaf nodes holding key-value pairs, and the leaves are linked to each other left to right for range scans">
 
 ## Our Implementation: Direct Page Manipulation
 
 We don't create "node objects" in memory. Instead, we read/write bytes directly in page buffers. The "node" is just a lens over page bytes.
 
-<img class="diagram diagram-md" src="../assets/diagrams/btree-page-access.svg"
+<img class="diagram" src="../assets/diagrams/btree-page-access.svg"
      alt="Two approaches side by side. Traditional: page bytes are deserialised into a node struct and serialised back. LatticeDB: page bytes are read and written directly at calculated offsets, with no intermediate struct">
 
 No intermediate objects. No serialization overhead.
@@ -121,7 +121,7 @@ pub fn get(self: *Self, key: []const u8) !?[]const u8 {
 
 **Example lookup for key "dog":**
 
-<img class="diagram diagram-sm" src="../assets/diagrams/btree-lookup.svg"
+<img class="diagram" src="../assets/diagrams/btree-lookup.svg"
      alt="Looking up the key dog. From the root holding separators cat and fish, the search follows the middle branch because dog sorts after cat and before fish, reaching the leaf containing cow and dog">
 
 ## Insertion
@@ -155,7 +155,7 @@ pub fn insert(self: *Self, key: []const u8, value: []const u8) !void {
 
 When a leaf is full:
 
-<img class="diagram diagram-md" src="../assets/diagrams/btree-leaf-split.svg"
+<img class="diagram" src="../assets/diagrams/btree-leaf-split.svg"
      alt="A full leaf holding a through e splits when f is inserted. The entries divide into two linked leaves holding a-b-c and d-e-f, and the key d is promoted to the parent as a separator">
 
 ```zig
@@ -195,7 +195,7 @@ the configured page size after the new entry is included.
 
 When the root splits, we create a new root:
 
-<img class="diagram diagram-sm" src="../assets/diagrams/btree-root-split.svg"
+<img class="diagram" src="../assets/diagrams/btree-root-split.svg"
      alt="Splitting the root creates a new root holding the separator key 50, with the old root as its left child and a newly allocated page as its right child. This is the only operation that increases the height of the tree">
 
 The tree grows at the top, not the bottom. All leaves stay at the same depth.
@@ -223,7 +223,7 @@ pub fn range(self: *Self, start: ?[]const u8, end: ?[]const u8) !Iterator {
 
 **Iterator walks the leaf chain:**
 
-<img class="diagram diagram-md" src="../assets/diagrams/btree-range-scan.svg"
+<img class="diagram" src="../assets/diagrams/btree-range-scan.svg"
      alt="A range scan seeks once through the internal nodes to the leaf containing dog, then walks the leaf chain sideways through to the leaf containing goat and ham">
 
 No need to traverse internal nodes for each entry - just follow the links.
@@ -305,7 +305,7 @@ pages remain fixed-size and directly addressable.
 
 Insert "zebra" into a tree:
 
-<img class="diagram diagram-md" src="../assets/diagrams/btree-insert-walk.svg"
+<img class="diagram" src="../assets/diagrams/btree-insert-walk.svg"
      alt="Inserting the key zebra: the root routes right because zebra sorts after the separator rabbit, reaching page 4 which holds snake, tiger and wolf and has room, so zebra is written in place with no split">
 
 ## Performance Characteristics

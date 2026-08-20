@@ -15,7 +15,7 @@ grows without bound.
 
 A checkpoint says: "Everything up to this point is safely on disk in the main database file. We don't need the old WAL records anymore."
 
-<img class="diagram diagram-md" src="../assets/diagrams/checkpoint-before-after.svg"
+<img class="diagram" src="../assets/diagrams/checkpoint-before-after.svg"
      alt="Before a checkpoint, pages 5, 12 and 8 are dirty in the buffer pool, the database file holds old versions, and recovery needs every WAL record. After a checkpoint, all four pages are clean, the database file holds current versions, and replay starts at checkpoint_lsn">
 
 
@@ -172,7 +172,7 @@ Common strategies:
 
 ## Integration
 
-<img class="diagram diagram-md" src="../assets/diagrams/checkpointer-integration.svg"
+<img class="diagram" src="../assets/diagrams/checkpointer-integration.svg"
      alt="The checkpointer coordinates three subsystems: BufferPool for frames, dirty tracking and latches; PageManager for writePage and sync; and WalManager for append, sync and setLsn">
 
 The Checkpointer coordinates between:

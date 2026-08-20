@@ -3,56 +3,56 @@
 digraph checkpoint_before_after {
   bgcolor="transparent"
   rankdir=TB
-  nodesep=0.2
-  ranksep=0.4
+  nodesep=0.16
+  ranksep=0.3
   fontname="Helvetica,Arial,sans-serif"
   node [shape=box style="filled" fillcolor="#eef4fb" color="#4a90d9"
         penwidth=1.2 fontname="Menlo,Consolas,monospace" fontsize=10
-        fontcolor="#1a1a1a" margin="0.14,0.10"]
+        fontcolor="#1a1a1a" margin="0.12,0.09"]
   edge [color="#6b7280" penwidth=1.1 arrowsize=0.65
         fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
 
   subgraph cluster_before {
     label="Before checkpoint"
     fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
-    color="#dbe3ec" penwidth=1.1 style=rounded margin=14
+    color="#dbe3ec" penwidth=1.1 style=rounded margin=12
 
-    b_pool [label="Buffer pool (RAM)" shape=plaintext style="" fillcolor="transparent"
-            fontname="Helvetica,Arial,sans-serif" fontsize=11 fontcolor="#6b7280"]
+    b_pool [shape=plaintext style="" fillcolor="transparent" label="Buffer pool (RAM)"
+            fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
     b5  [label="page 5\ldirty\l"  fillcolor="#fdf0ea" color="#c2703f"]
     b12 [label="page 12\ldirty\l" fillcolor="#fdf0ea" color="#c2703f"]
     b3  [label="page 3\lclean\l"]
     b8  [label="page 8\ldirty\l"  fillcolor="#fdf0ea" color="#c2703f"]
-    { rank=same; b5 -> b12 -> b3 -> b8 [style=invis] }
+    { rank=same; b5 -> b12 [style=invis] }
+    { rank=same; b3 -> b8 [style=invis] }
     b_pool -> b5 [style=invis]
+    b5 -> b3 [style=invis]
 
-    b_file [label="Database file: old versions of pages"
-            fillcolor="#f6f8fa" color="#c7d0da"]
-    b_wal  [label="WAL: recovery needs every record"
-            fillcolor="#fdf0ea" color="#c2703f"]
-    b5 -> b_file [label="  only in RAM" color="#c2703f" style=dashed]
+    b_file [label="Database file\lold page versions\l" fillcolor="#f6f8fa" color="#c7d0da"]
+    b_wal  [label="WAL\lreplay needs every record\l" fillcolor="#fdf0ea" color="#c2703f"]
+    b3 -> b_file [label="  only in RAM" color="#c2703f" style=dashed]
     b_file -> b_wal [style=invis]
   }
 
   subgraph cluster_after {
     label="After checkpoint"
     fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
-    color="#dbe3ec" penwidth=1.1 style=rounded margin=14
+    color="#dbe3ec" penwidth=1.1 style=rounded margin=12
 
-    a_pool [label="Buffer pool (RAM)" shape=plaintext style="" fillcolor="transparent"
-            fontname="Helvetica,Arial,sans-serif" fontsize=11 fontcolor="#6b7280"]
+    a_pool [shape=plaintext style="" fillcolor="transparent" label="Buffer pool (RAM)"
+            fontname="Helvetica,Arial,sans-serif" fontsize=10 fontcolor="#6b7280"]
     a5  [label="page 5\lclean\l"]
     a12 [label="page 12\lclean\l"]
     a3  [label="page 3\lclean\l"]
     a8  [label="page 8\lclean\l"]
-    { rank=same; a5 -> a12 -> a3 -> a8 [style=invis] }
+    { rank=same; a5 -> a12 [style=invis] }
+    { rank=same; a3 -> a8 [style=invis] }
     a_pool -> a5 [style=invis]
+    a5 -> a3 [style=invis]
 
-    a_file [label="Database file: current versions of pages"
-            fillcolor="#eaf5ea" color="#2f7d32"]
-    a_wal  [label="WAL: replay starts at checkpoint_lsn"
-            fillcolor="#eaf5ea" color="#2f7d32"]
-    a5 -> a_file [label="  flushed" color="#2f7d32"]
+    a_file [label="Database file\lcurrent page versions\l" fillcolor="#eaf5ea" color="#2f7d32"]
+    a_wal  [label="WAL\lreplay starts at checkpoint_lsn\l" fillcolor="#eaf5ea" color="#2f7d32"]
+    a3 -> a_file [label="  flushed" color="#2f7d32"]
     a_file -> a_wal [style=invis]
   }
 }

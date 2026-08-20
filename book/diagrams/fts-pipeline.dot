@@ -2,28 +2,18 @@
 digraph fts_pipeline {
   bgcolor="transparent"
   rankdir=LR
-  nodesep=0.3
-  ranksep=0.5
+  nodesep=0.25
+  ranksep=0.42
   fontname="Helvetica,Arial,sans-serif"
   node [shape=box style="filled,rounded" fillcolor="#eef4fb" color="#4a90d9"
         penwidth=1.2 fontname="Helvetica,Arial,sans-serif" fontsize=12
-        fontcolor="#1a1a1a" margin="0.22,0.13"]
+        fontcolor="#1a1a1a" margin="0.18,0.13"]
   edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
 
-  tok  [label="Tokenizer"]
-  dict [label="Dictionary\n(B+Tree)"]
-  post [label="Posting List\n(pages)"]
-  score [label="Scorer\n(BM25)" fillcolor="#dbe9f8"]
+  tok   [label=<<b>Tokenizer</b><br/><font point-size="10" color="#6b7280">"hello world" →<br/>["hello", "world"]</font>>]
+  dict  [label=<<b>Dictionary</b><br/><font point-size="10" color="#6b7280">B+Tree<br/>"hello" → 1</font>>]
+  post  [label=<<b>Posting List</b><br/><font point-size="10" color="#6b7280">pages of doc ids<br/>+ term frequencies</font>>]
+  score [label=<<b>Scorer</b><br/><font point-size="10" color="#6b7280">BM25<br/>ranked results</font>> fillcolor="#dbe9f8"]
 
   tok -> dict -> post -> score
-
-  node [shape=box style="filled,rounded" fillcolor="#f6f8fa" color="#c7d0da"
-        fontname="Menlo,Consolas,monospace" fontsize=10]
-  o1 [label="\"hello world\"\l→ [\"hello\", \"world\"]\l"]
-  o2 [label="\"hello\" → 1\l\"world\" → 2\l"]
-  o3 [label="doc ids with\lterm frequencies\l"]
-  o4 [label="ranked results\l"]
-
-  edge [style=dashed color="#c7d0da" arrowsize=0.6]
-  tok -> o1; dict -> o2; post -> o3; score -> o4
 }
