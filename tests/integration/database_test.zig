@@ -17,6 +17,55 @@ const OpenOptions = lattice.storage.database.OpenOptions;
 const PropertyValue = lattice.core.types.PropertyValue;
 const EdgeError = lattice.graph.edge.EdgeError;
 
+/// Plan `cypher` against `db` and report which scan the planner chose.
+///
+/// An index scan and a label scan produce identical rows, so no assertion on a
+/// result set can tell them apart. Planning the query and reading the decision
+/// is the only way to check that an index is really being used.
+fn planScanKind(
+    db: *Database,
+    cypher: []const u8,
+) !lattice.query.planner.QueryPlanner.ScanKind {
+    const allocator = std.testing.allocator;
+
+    // The parser owns the arena the AST lives in, so it has to outlive planning.
+    var parser = lattice.query.parser.Parser.init(allocator, cypher);
+    defer parser.deinit();
+    const parse_result = parser.parse();
+    if (parse_result.query == null) return error.ParseFailed;
+
+    var analyzer = lattice.query.semantic.SemanticAnalyzer.init(allocator);
+    defer analyzer.deinit();
+    const analysis = analyzer.analyze(parse_result.query.?);
+    if (!analysis.success) return error.SemanticFailed;
+
+    const storage_ctx = lattice.query.planner.StorageContext{
+        .node_tree = &db.node_tree,
+        .label_index = &db.label_index,
+        .edge_store = &db.edge_store,
+        .symbol_table = &db.symbol_table,
+        .hnsw_index = if (db.hnsw_index) |*hnsw| hnsw else null,
+        .fts_index = if (db.fts_index) |*fts| fts else null,
+        .database = db,
+    };
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var planner = lattice.query.planner.QueryPlanner.init(arena.allocator(), storage_ctx);
+    defer planner.deinit();
+
+    const analysis_result = lattice.query.semantic.AnalysisResult{
+        .success = true,
+        .errors = &[_]lattice.query.semantic.SemanticError{},
+        .variables = analysis.variables,
+        .errors_dropped = false,
+    };
+
+    _ = try planner.plan(parse_result.query.?, &analysis_result);
+    return planner.last_scan_kind;
+}
+
 fn overwriteEdgePayloadWithInvalidData(db: *Database, edge_id: u64) !void {
     var id_key: [8]u8 = undefined;
     std.mem.writeInt(u64, &id_key, edge_id, .little);
@@ -2546,24 +2595,54 @@ test "database: explicit property indexes track direct and transactional mutatio
         defer allocator.free(edge_ids);
         try std.testing.expectEqualSlices(u64, &.{edge_id}, edge_ids);
 
-        // Exercise the planner's inline, WHERE, reversed, conjunction, and
-        // disjunction paths against an indexed property.
-        //
-        // These entries are removed to keep the label index consistent with the
-        // rest of the test, but note that they do not isolate the property
-        // index: LabelScan resolves nodes through getNodesByLabelIdInTxn, which
-        // walks visible nodes and checks each node's own label list rather than
-        // consulting label_index. Distinguishing an index scan from a label scan
-        // needs a plan assertion, not a hidden row.
-        const person_id = try db.symbol_table.lookup("Person");
-        try db.label_index.remove(person_id, alice);
-        try db.label_index.remove(person_id, bob);
-        {
-            defer {
-                db.label_index.add(person_id, alice) catch @panic("failed to restore Alice label index entry");
-                db.label_index.add(person_id, bob) catch @panic("failed to restore Bob label index entry");
-            }
+        // Assert on the plan, not on the rows. An index scan and a label scan
+        // return the same rows, so a result set cannot distinguish them; only
+        // the planner's own decision can.
+        const ScanKind = lattice.query.planner.QueryPlanner.ScanKind;
 
+        // An inline property in the pattern is enough to select the index.
+        try std.testing.expectEqual(
+            ScanKind.property_index_scan,
+            try planScanKind(db, "MATCH (n:Person {email: \"alice@example.com\"}) RETURN n"),
+        );
+
+        // So is the equivalent WHERE equality, in either order.
+        try std.testing.expectEqual(
+            ScanKind.property_index_scan,
+            try planScanKind(db, "MATCH (n:Person) WHERE n.email = \"alice@example.com\" RETURN n"),
+        );
+        try std.testing.expectEqual(
+            ScanKind.property_index_scan,
+            try planScanKind(db, "MATCH (n:Person) WHERE \"alice@example.com\" = n.email RETURN n"),
+        );
+
+        // A conjunction still qualifies: every row has to satisfy both sides,
+        // so narrowing on one of them cannot drop a row that should match.
+        try std.testing.expectEqual(
+            ScanKind.property_index_scan,
+            try planScanKind(
+                db,
+                "MATCH (n:Person) WHERE n.email = \"alice@example.com\" AND n.name = \"Alice\" RETURN n",
+            ),
+        );
+
+        // A disjunction must not. Narrowing to either branch would discard rows
+        // matching the other, so the planner has to fall back to a label scan.
+        try std.testing.expectEqual(
+            ScanKind.label_scan,
+            try planScanKind(
+                db,
+                "MATCH (n:Person) WHERE n.email = \"alice@example.com\" OR n.email = \"bob@example.com\" RETURN n",
+            ),
+        );
+
+        // A property with no index behind it also falls back.
+        try std.testing.expectEqual(
+            ScanKind.label_scan,
+            try planScanKind(db, "MATCH (n:Person) WHERE n.name = \"Alice\" RETURN n"),
+        );
+
+        {
             var params = std.StringHashMap(PropertyValue).init(allocator);
             defer params.deinit();
             try params.put("email", .{ .string_val = "alice@example.com" });

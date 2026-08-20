@@ -130,6 +130,23 @@ pub const QueryPlanner = struct {
     output_columns: u8 = 0,
     /// Explicit output column names from RETURN aliases.
     output_column_names: [MAX_SLOTS]?[]const u8,
+    /// Which scan the planner chose for the most recent node pattern.
+    ///
+    /// An index scan and a label scan return the same rows, so behaviour alone
+    /// cannot tell you which one ran. This records the decision so that tests
+    /// can assert an index is actually being used, rather than assuming it from
+    /// a result set that would look identical either way.
+    last_scan_kind: ScanKind = .none,
+
+    /// How the planner resolved a node pattern to rows.
+    pub const ScanKind = enum {
+        /// No node pattern has been planned yet.
+        none,
+        /// Every node carrying the label, filtered afterwards.
+        label_scan,
+        /// Straight to the matching nodes through a property index.
+        property_index_scan,
+    };
 
     const Self = @This();
 
@@ -144,6 +161,7 @@ pub const QueryPlanner = struct {
             .next_slot = 0,
             .output_columns = 0,
             .output_column_names = [_]?[]const u8{null} ** MAX_SLOTS,
+            .last_scan_kind = .none,
         };
     }
 
@@ -348,11 +366,13 @@ pub const QueryPlanner = struct {
                                 property.value,
                                 database,
                             ) catch return PlannerError.OutOfMemory;
+                            self.last_scan_kind = .property_index_scan;
                             break :blk property_scan.operator();
                         } else blk: {
                             const label_scan = scan_ops.LabelScan.init(self.allocator, slot, label_id, database) catch {
                                 return PlannerError.OutOfMemory;
                             };
+                            self.last_scan_kind = .label_scan;
                             break :blk label_scan.operator();
                         };
 
