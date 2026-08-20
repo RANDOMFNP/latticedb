@@ -6,6 +6,7 @@
 
 - [Installation](./getting-started/installation.md)
 - [Quick Start](./getting-started/quickstart.md)
+- [The lattice Command](./getting-started/cli.md)
 - [Core Concepts](./getting-started/concepts.md)
 - [When to Use LatticeDB](./getting-started/when-to-use.md)
 
