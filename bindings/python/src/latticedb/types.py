@@ -37,7 +37,14 @@ class Node:
         self.properties[key] = value
 
     def get_property(self, key: str, default: PropertyValue = None) -> PropertyValue:
-        """Get a property from this node."""
+        """Get a property held on this object.
+
+        This reads the local ``properties`` dictionary; it does not go to
+        storage. Nodes returned by :meth:`Transaction.get_node` come back with
+        ``properties`` empty, so this returns ``default`` for them even when the
+        node does have that property stored. Use
+        :meth:`Transaction.get_property` to read a stored property by key.
+        """
         return self.properties.get(key, default)
 
     def set_vector(self, key: str, vector: NDArray[np.float32]) -> None:
@@ -64,7 +71,11 @@ class Edge:
         self.properties[key] = value
 
     def get_property(self, key: str, default: PropertyValue = None) -> PropertyValue:
-        """Get a property from this edge."""
+        """Get a property held on this object.
+
+        As with :meth:`Node.get_property`, this reads the local ``properties``
+        dictionary rather than going to storage.
+        """
         return self.properties.get(key, default)
 
 
