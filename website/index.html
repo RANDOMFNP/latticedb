@@ -55,6 +55,7 @@
         "BM25 full-text search",
         "Durable streams and graph changefeeds",
         "ACID transactions with write-ahead logging",
+        "Durable node and edge property equality indexes",
         "C, Python, and TypeScript bindings"
       ],
       "author": { "@id": "https://latticedb.org/#author" },
@@ -698,41 +699,41 @@ footer .footer-links {
 <!-- Release Notes -->
 <section class="release-notes">
   <div class="container">
-    <h2>What's new in 0.9.6</h2>
-    <p class="caption">Typed graph traversal, stream publish sequences, adjacency-cache options, and WAL truncation make graph and stream workloads easier to operate.</p>
+    <h2>What's new in 0.10.0</h2>
+    <p class="caption">Durable property indexes the query planner can use, stricter write ownership, and storage that gives space back.</p>
     <div class="release-grid">
       <div class="release-card">
-        <h3>Typed Traversal</h3>
+        <h3>Property Indexes</h3>
         <ul>
-          <li>Outgoing and incoming edge reads can filter by type</li>
-          <li>Traversal limits stop collection before result materialization</li>
-          <li>Native edge scan is documented for admin and rebuild workflows</li>
-          <li>Python, TypeScript, and Go bindings expose typed helpers</li>
+          <li>Durable node and edge property equality indexes</li>
+          <li>The Cypher planner uses them for inline and <code>WHERE</code> equality</li>
+          <li>Maintained by direct and transactional writes, rebuilt on recovery</li>
+          <li>Indexed lookup never silently falls back to a scan</li>
         </ul>
       </div>
       <div class="release-card">
-        <h3>Stream Sequences</h3>
+        <h3>Write Ownership</h3>
         <ul>
-          <li>Publish calls can return the assigned stream sequence</li>
-          <li>Existing publish APIs remain source-compatible</li>
-          <li>Rollback keeps staged stream records non-durable</li>
-          <li>Last-sequence introspection is available for durable streams</li>
+          <li>One active read-write transaction per handle</li>
+          <li>A second writer gets a contention error instead of racing</li>
+          <li>Read-only transactions may stay open alongside it</li>
+          <li>Close ownership is consistent across every binding</li>
         </ul>
       </div>
       <div class="release-card">
-        <h3>Operations</h3>
+        <h3>Reclaiming Space</h3>
         <ul>
-          <li>Open v3 exposes the adjacency-cache option to all bindings</li>
-          <li>Transaction all-node snapshots complement label reads</li>
-          <li>Checkpointed WAL files truncate to header-only logs on close</li>
-          <li>Property index design notes define future lookup semantics</li>
+          <li>B+Tree deletes rebalance through every internal level</li>
+          <li><code>lattice compact</code> truncates free pages from the file tail</li>
+          <li>Vector replacement and HNSW rebuild reuse storage</li>
+          <li>Corrupt persisted vector chains are rejected, not read</li>
         </ul>
       </div>
     </div>
     <p class="release-meta">
       <a href="https://github.com/jeffhajewski/latticedb/blob/main/docs/09_graph_storage.md">Read the graph storage notes</a>
       <span aria-hidden="true"> | </span>
-      <a href="https://github.com/jeffhajewski/latticedb/blob/main/docs/release_notes_0.9.6.md">Read the 0.9.6 release notes</a>
+      <a href="https://github.com/jeffhajewski/latticedb/blob/main/docs/release_notes_0.10.0.md">Read the 0.10.0 release notes</a>
     </p>
   </div>
 </section>
