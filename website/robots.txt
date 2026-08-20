@@ -1,0 +1,10 @@
+# https://latticedb.org/robots.txt
+
+User-agent: *
+Allow: /
+
+# /experimental/ is intentionally crawlable but carries <meta name="robots" content="noindex">.
+# Disallowing it here would hide that directive and leave the page indexed.
+
+Sitemap: https://latticedb.org/sitemap.xml
+Sitemap: https://docs.latticedb.org/sitemap.xml

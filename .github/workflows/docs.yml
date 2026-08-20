@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'book/**'
+      - 'scripts/mdbook_seo.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -19,6 +20,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so scripts/mdbook_seo.py can read a real
+          # last-modified date per page for the sitemap.
+          fetch-depth: 0
 
       - name: Install mdBook
         run: |
@@ -29,6 +34,13 @@ jobs:
       - name: Build book
         working-directory: book
         run: mdbook build
+
+      - name: Post-process for search engines
+        run: |
+          python3 scripts/mdbook_seo.py \
+            --build-dir book/build \
+            --src-dir book/src \
+            --base-url https://docs.latticedb.org
 
       - name: Deploy to Cloudflare Pages
         run: npx wrangler@3 pages deploy book/build --project-name=latticedb-docs

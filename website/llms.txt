@@ -1,0 +1,60 @@
+# LatticeDB
+
+> A single-file embedded property-graph database with native vector search, BM25 full-text
+> search, durable streams, and graph changefeeds. Relationship traversal, vector similarity,
+> text search, and ACID transactions live in one local engine behind one Cypher query layer —
+> think SQLite, but for connected data you want to query by relationship, semantics, and text.
+
+LatticeDB is written in Zig, has no runtime dependencies, and embeds in-process with C, Python,
+and TypeScript/Node.js bindings. It is MIT licensed and developed at
+https://github.com/jeffhajewski/latticedb.
+
+It is not a server. There is no daemon, no network hop, and no separate vector store to keep in
+sync — a database is one file on disk.
+
+## Getting started
+
+- [Installation](https://docs.latticedb.org/getting-started/installation): install via curl, pip, or npm
+- [Quick Start](https://docs.latticedb.org/getting-started/quickstart): create nodes, edges, and vectors, then query them
+- [Core Concepts](https://docs.latticedb.org/getting-started/concepts): nodes, edges, properties, labels, and indexes
+- [When to Use LatticeDB](https://docs.latticedb.org/getting-started/when-to-use): where it fits and where it does not
+
+## Guides
+
+- [Building a RAG System](https://docs.latticedb.org/guides/rag-system): chunk, embed, and retrieve with graph context
+- [Knowledge Graph Modeling](https://docs.latticedb.org/guides/knowledge-graph): schema design for connected data
+- [Working with Embeddings](https://docs.latticedb.org/guides/embeddings): storing and indexing vectors
+- [Full-Text Search](https://docs.latticedb.org/guides/full-text-search): BM25 ranking over node properties
+- [Durable Streams](https://docs.latticedb.org/guides/durable-streams): append-only streams and changefeeds
+- [Transactions and Durability](https://docs.latticedb.org/guides/transactions): ACID semantics and crash safety
+- [Performance Tuning](https://docs.latticedb.org/guides/performance-tuning): index and buffer-pool configuration
+
+## Query language
+
+- [Cypher Overview](https://docs.latticedb.org/cypher/overview): the supported dialect
+- [MATCH and Patterns](https://docs.latticedb.org/cypher/match): pattern matching over the graph
+- [Vector Search](https://docs.latticedb.org/cypher/vector-search): the `<=>` similarity operator
+- [Full-Text Search](https://docs.latticedb.org/cypher/full-text-search): the `@@` match operator
+- [Variable-Length Paths](https://docs.latticedb.org/cypher/variable-length-paths): multi-hop traversal
+- [Functions](https://docs.latticedb.org/cypher/functions): built-in function reference
+
+## API reference
+
+- [C API](https://docs.latticedb.org/api/c): the core embedding interface
+- [Python](https://docs.latticedb.org/api/python): the `latticedb` package on PyPI
+- [TypeScript / Node.js](https://docs.latticedb.org/api/typescript): the `@hajewski/latticedb` package on npm
+
+## Architecture
+
+- [Overview](https://docs.latticedb.org/architecture/overview): how the engine fits together
+- [Graph Storage](https://docs.latticedb.org/architecture/graph-storage): adjacency and property layout
+- [Vector Search (HNSW)](https://docs.latticedb.org/architecture/vector-search): the vector index
+- [B+Tree](https://docs.latticedb.org/architecture/btree): the primary index structure
+- [Write-Ahead Log](https://docs.latticedb.org/architecture/wal): durability and recovery
+- [Query Execution](https://docs.latticedb.org/architecture/query-execution): planning and operators
+
+## Optional
+
+- [Benchmarks](https://docs.latticedb.org/performance/benchmarks): measured throughput and latency
+- [Competitive Analysis](https://docs.latticedb.org/performance/competitive-analysis): how it compares to other engines
+- [Building from Source](https://docs.latticedb.org/development/building): Zig toolchain setup
