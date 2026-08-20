@@ -134,6 +134,15 @@ def _update_build_zig(text: str, version: str, path: Path) -> str:
     )
 
 
+def _update_build_zig_zon(text: str, version: str, path: Path) -> str:
+    return _replace_exactly_one(
+        text,
+        r'^    \.version = ".*",$',
+        f'    .version = "{version}",',
+        path,
+    )
+
+
 def _update_c_api_zig(text: str, version: str, path: Path) -> str:
     text = _replace_exactly_one(
         text,
@@ -389,6 +398,19 @@ def _collect_version_observations(
     )
     observations.append(
         VersionObservation("Build script version", build_zig_path, build_version)
+    )
+
+    # build.zig.zon
+    build_zon_path = root / "build.zig.zon"
+    build_zon = _load(build_zon_path)
+    build_zon_version = _extract_exactly_one(
+        build_zon,
+        r'^    \.version = "([^"]+)",$',
+        build_zon_path,
+        "build.zig.zon version field",
+    )
+    observations.append(
+        VersionObservation("Package manifest version", build_zon_path, build_zon_version)
     )
 
     # src/api/c_api.zig
@@ -717,6 +739,9 @@ def _compute_changes(root: Path, version: str) -> Tuple[FileChange, ...]:
         ),
         root / "build.zig": lambda t: _update_build_zig(
             t, version, root / "build.zig"
+        ),
+        root / "build.zig.zon": lambda t: _update_build_zig_zon(
+            t, version, root / "build.zig.zon"
         ),
         root / "src/main.zig": lambda t: _update_main_zig(
             t, version, major, minor, patch, root / "src/main.zig"
