@@ -2699,3 +2699,77 @@ test "database: explicit property indexes track direct and transactional mutatio
         );
     }
 }
+
+test "database: relationship patterns traverse in every direction" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_expand_direction_regression.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_wal = false, .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    // A -[:KNOWS]-> B
+    const a = try db.createNode(null, &[_][]const u8{"P"});
+    const b = try db.createNode(null, &[_][]const u8{"P"});
+    try db.setNodeProperty(null, a, "n", .{ .string_val = "A" });
+    try db.setNodeProperty(null, b, "n", .{ .string_val = "B" });
+    _ = try db.createEdgeAndGetId(null, a, b, "KNOWS");
+
+    // Rightward patterns start at A.
+    {
+        var result = try db.query("MATCH (x:P {n: \"A\"})-[:KNOWS]->(y) RETURN y.n");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 1), result.rowCount());
+    }
+
+    // Leftward patterns are the ones that regressed: the expand operator chose
+    // its iterator from in_incoming_phase, which only tracks the second half of
+    // a `both` traversal, so a plain incoming expand read a null outgoing list
+    // and produced nothing at all.
+    {
+        var result = try db.query("MATCH (x:P {n: \"B\"})<-[:KNOWS]-(y) RETURN y.n");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 1), result.rowCount());
+    }
+
+    // With an edge variable bound, and with no type at all.
+    {
+        var result = try db.query("MATCH (x:P {n: \"B\"})<-[r:KNOWS]-(y) RETURN y.n");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 1), result.rowCount());
+    }
+    {
+        var result = try db.query("MATCH (x:P {n: \"B\"})<--(y) RETURN y.n");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 1), result.rowCount());
+    }
+
+    // An undirected pattern reaches the neighbour from either end.
+    {
+        var result = try db.query("MATCH (x:P {n: \"A\"})-[:KNOWS]-(y) RETURN y.n");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 1), result.rowCount());
+    }
+    {
+        var result = try db.query("MATCH (x:P {n: \"B\"})-[:KNOWS]-(y) RETURN y.n");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 1), result.rowCount());
+    }
+
+    // A leftward pattern binds the far end to the source of the edge, so
+    // starting at B must reach A rather than B itself.
+    {
+        var result = try db.query("MATCH (x:P {n: \"B\"})<-[:KNOWS]-(y) RETURN y.n");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 1), result.rowCount());
+        switch (result.rows[0].values[0]) {
+            .string_val => |s| try std.testing.expectEqualStrings("A", s),
+            else => return error.UnexpectedValueType,
+        }
+    }
+}

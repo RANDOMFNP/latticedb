@@ -163,6 +163,17 @@ pub const Expand = struct {
         }
     }
 
+    /// Whether the operator is currently walking incoming edges.
+    ///
+    /// `in_incoming_phase` only tracks which half of a `both` traversal is in
+    /// progress, so it stays false for a plain `.incoming` expand. Keying the
+    /// iterator choice off it alone sent `.incoming` down the outgoing branch,
+    /// where `outgoing_edges` is null, and every left-pointing pattern returned
+    /// no rows at all.
+    fn readingIncoming(self: *const Self) bool {
+        return self.direction == .incoming or self.in_incoming_phase;
+    }
+
     fn nextFromCurrentIterator(self: *Self) OperatorError!?*Row {
         const output_row = self.output_row orelse return OperatorError.NotInitialized;
         const input_row = self.current_input orelse return null;
@@ -170,7 +181,7 @@ pub const Expand = struct {
         // Determine which iterator to use
         var edges: []edge_mod.EdgeRef = undefined;
         var index_ptr: *usize = undefined;
-        if (self.in_incoming_phase) {
+        if (self.readingIncoming()) {
             edges = self.incoming_edges orelse return null;
             index_ptr = &self.incoming_index;
         } else {
@@ -185,8 +196,8 @@ pub const Expand = struct {
             output_row.clear();
             output_row.copyFrom(input_row);
 
-            // Determine target node based on direction
-            const target_id = if (self.in_incoming_phase) edge.source else edge.target;
+            // Following an incoming edge means the other end is its source.
+            const target_id = if (self.readingIncoming()) edge.source else edge.target;
             output_row.setSlot(self.target_slot, .{ .node_ref = target_id });
 
             // Set edge slot if requested

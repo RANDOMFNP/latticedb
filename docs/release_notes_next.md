@@ -4,11 +4,12 @@ Use this file as the draft for the next release after `0.10.0`.
 
 ## Summary
 
-This release fixes expression parsing. Boolean operators bound more tightly than
-comparison, which made almost every compound `WHERE` clause fail, and the
+This release fixes query correctness. Boolean operators bound more tightly than
+comparison, which made almost every compound `WHERE` clause fail; the
 subtraction and negation operators were unreachable because the parser matched a
-token the lexer never produces. It also corrects `lattice info`, which described
-the handle's configuration rather than the database file.
+token the lexer never produces; and every left-pointing relationship pattern
+returned no rows at all. It also corrects `lattice info`, which described the
+handle's configuration rather than the database file.
 
 ## Highlights
 
@@ -21,6 +22,13 @@ the handle's configuration rather than the database file.
   previously failed to parse. The lexer emits `dash` for `-`, but the expression
   parser matched `minus`, which nothing ever produces, so both operators were
   dead code.
+- Left-pointing relationship patterns work. `MATCH (a)<-[:KNOWS]-(b)`,
+  `MATCH (a)<-[r]-(b)`, and `MATCH (a)<--(b)` previously matched nothing at all,
+  silently, on any graph. The expand operator picked its edge iterator from a
+  flag that only tracks the second half of an undirected traversal, so a plain
+  incoming expand read an empty list and produced no rows. Undirected and
+  variable-length patterns were unaffected, which is why the gap survived: half
+  the traversal syntax returned wrong answers rather than errors.
 - `lattice info` reports whether the database file has a vector index and
   full-text search, instead of reporting the default configuration of the handle
   used to open it. It previously said `Vector: disabled` for every database, and
@@ -43,7 +51,8 @@ the handle's configuration rather than the database file.
   continue to work unchanged; the parentheses are now redundant rather than
   required.
 - Any code that avoided compound `WHERE` clauses or subtraction in Cypher can be
-  simplified.
+  simplified, as can any workaround that rewrote a left-pointing pattern as a
+  right-pointing one with the endpoints swapped.
 - `lattice info` output changes for existing databases. Scripts that parse
   `vector_enabled` or `fts_enabled` from the JSON or CSV output will now see the
   file's real state, which means `vector_enabled` becomes true for databases
@@ -53,6 +62,10 @@ the handle's configuration rather than the database file.
 
 - `zig build test` passed, including the 4 KiB and 32 KiB conversation-storage
   matrices.
+- `zig build fuzz` passed.
+- TypeScript: 90 tests passed. Go binding and Go conformance suites passed.
+- Container integration has not been run locally; it needs Linux and is covered
+  by CI.
 - `zig build integration-test` passed all 199 integration tests.
 - `zig build crash-test` passed.
 - Python: 121 tests passed.
