@@ -981,7 +981,8 @@ pub const QueryPlanner = struct {
                 .expr = item.expression,
                 .output_slot = @intCast(i),
             };
-            self.output_column_names[i] = item.alias;
+            self.output_column_names[i] = item.alias orelse
+                self.columnNameForExpression(item.expression);
         }
 
         const project = project_ops.Project.init(self.allocator, input_op, items) catch {
@@ -996,6 +997,41 @@ pub const QueryPlanner = struct {
             result_op = distinct.operator();
         }
         return result_op;
+    }
+
+    /// Name an unaliased RETURN item after the expression it projects.
+    ///
+    /// Cypher names a result column after the text that produced it, so
+    /// `RETURN a.n` yields a column called `a.n`. Returns null for shapes with
+    /// no obvious rendering, leaving the caller to fall back to a positional
+    /// name.
+    fn columnNameForExpression(self: *Self, expr: *const ast.Expression) ?[]const u8 {
+        return switch (expr.*) {
+            .variable => |v| v.name,
+            .parameter => |param| std.fmt.allocPrint(
+                self.allocator,
+                "${s}",
+                .{param.name},
+            ) catch null,
+            .property_access => |access| blk: {
+                const object = self.columnNameForExpression(access.object) orelse break :blk null;
+                break :blk std.fmt.allocPrint(
+                    self.allocator,
+                    "{s}.{s}",
+                    .{ object, access.property },
+                ) catch null;
+            },
+            .function_call => |call| blk: {
+                if (call.arguments.len != 1) break :blk call.name;
+                const arg = self.columnNameForExpression(call.arguments[0]) orelse break :blk call.name;
+                break :blk std.fmt.allocPrint(
+                    self.allocator,
+                    "{s}({s})",
+                    .{ call.name, arg },
+                ) catch null;
+            },
+            else => null,
+        };
     }
 
     /// Plan a RETURN clause with aggregations
@@ -1015,7 +1051,8 @@ pub const QueryPlanner = struct {
 
         for (ret.items, 0..) |item, i| {
             const slot: u8 = @intCast(i);
-            self.output_column_names[i] = item.alias;
+            self.output_column_names[i] = item.alias orelse
+                self.columnNameForExpression(item.expression);
 
             if (self.isDirectAggregate(item.expression)) |agg_info| {
                 // Direct aggregate function call: count(n), sum(n.val), etc.

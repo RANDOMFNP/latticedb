@@ -675,8 +675,8 @@ class TestQueries:
             )
             rows = list(result)
             assert len(rows) == 1
-            # Column name is 'n' (variable name), value is the property
-            assert rows[0]["n"] == "Alice"
+            # An unaliased RETURN item is named after the expression it projects.
+            assert rows[0]["n.name"] == "Alice"
 
             # Query with integer parameter
             result = db.query(
@@ -685,7 +685,7 @@ class TestQueries:
             )
             rows = list(result)
             assert len(rows) == 1
-            assert rows[0]["n"] == "Bob"
+            assert rows[0]["n.name"] == "Bob"
 
     def test_query_with_nested_list_and_map_parameters(self, tmp_path):
         """Nested query parameters and result values should round-trip."""
