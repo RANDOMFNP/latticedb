@@ -32,6 +32,7 @@ and validates:
 
 - native source and C header versions: `build.zig`, `src/main.zig`,
   `src/api/c_api.zig`, `include/lattice.h`
+- the Zig package manifest version: `build.zig.zon`
 - Python metadata: `bindings/python/pyproject.toml`,
   `bindings/python/src/latticedb/__init__.py`, `bindings/python/uv.lock`
 - TypeScript metadata and fallback version: `bindings/typescript/package.json`,
