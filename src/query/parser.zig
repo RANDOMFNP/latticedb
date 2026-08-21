@@ -1601,9 +1601,64 @@ pub const Parser = struct {
         return expr;
     }
 
+    /// Turn the raw source text of a string token into its value.
+    ///
+    /// The lexer steps over escape sequences to find where a string ends, but
+    /// leaves them in the token text, so `"say \"hi\""` arrives here with the
+    /// backslashes still attached. Anything unrecognised after a backslash is
+    /// passed through as the character itself.
+    fn decodeStringEscapes(self: *Self, content: []const u8) ?[]const u8 {
+        if (std.mem.indexOfScalar(u8, content, '\\') == null) return content;
+
+        var out: std.ArrayList(u8) = .empty;
+        const allocator = self.arena.allocator();
+        out.ensureTotalCapacity(allocator, content.len) catch return null;
+
+        var i: usize = 0;
+        while (i < content.len) {
+            if (content[i] != '\\' or i + 1 >= content.len) {
+                out.append(allocator, content[i]) catch return null;
+                i += 1;
+                continue;
+            }
+
+            const escaped = content[i + 1];
+            i += 2;
+            switch (escaped) {
+                'n' => out.append(allocator, '\n') catch return null,
+                't' => out.append(allocator, '\t') catch return null,
+                'r' => out.append(allocator, '\r') catch return null,
+                'b' => out.append(allocator, 0x08) catch return null,
+                'f' => out.append(allocator, 0x0C) catch return null,
+                '0' => out.append(allocator, 0) catch return null,
+                'u' => {
+                    // \uXXXX, four hex digits. Anything else is passed through.
+                    if (i + 4 <= content.len) {
+                        if (std.fmt.parseInt(u21, content[i .. i + 4], 16)) |code_point| {
+                            var buf: [4]u8 = undefined;
+                            if (std.unicode.utf8Encode(code_point, &buf)) |len| {
+                                out.appendSlice(allocator, buf[0..len]) catch return null;
+                                i += 4;
+                            } else |_| {
+                                out.append(allocator, escaped) catch return null;
+                            }
+                        } else |_| {
+                            out.append(allocator, escaped) catch return null;
+                        }
+                    } else {
+                        out.append(allocator, escaped) catch return null;
+                    }
+                },
+                else => out.append(allocator, escaped) catch return null,
+            }
+        }
+
+        return out.toOwnedSlice(allocator) catch null;
+    }
+
     fn makeStringLiteral(self: *Self, text: []const u8, loc: ast.SourceLocation) ?*ast.Expression {
-        // Remove quotes and handle escapes
-        const content = if (text.len >= 2) text[1 .. text.len - 1] else text;
+        const raw = if (text.len >= 2) text[1 .. text.len - 1] else text;
+        const content = self.decodeStringEscapes(raw) orelse return null;
         const expr = self.arena.allocator().create(ast.Expression) catch return null;
         expr.* = .{
             .literal = .{

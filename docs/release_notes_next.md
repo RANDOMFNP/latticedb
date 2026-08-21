@@ -29,6 +29,17 @@ handle's configuration rather than the database file.
   incoming expand read an empty list and produced no rows. Undirected and
   variable-length patterns were unaffected, which is why the gap survived: half
   the traversal syntax returned wrong answers rather than errors.
+- Escape sequences in string literals are decoded. `"say \"hi\""` stored the
+  backslashes as part of the value, and `"a\tb"` stored a backslash and a `t`
+  rather than a tab. The lexer stepped over escapes to find where a string ended
+  but left them in the token text, and nothing decoded them afterwards. `\n`,
+  `\t`, `\r`, `\b`, `\f`, `\0`, `\uXXXX`, and escaped quotes and backslashes
+  all now produce the character they name.
+- Result columns are named after the expression they project. `RETURN a.n`
+  produced a column called `a`, and `MATCH (a)-[:R]->(b) RETURN b.n` also
+  produced `a`, naming the column after a variable the query never returned.
+  Column names now read `a.n`, `count(a)`, and so on, matching Cypher. Explicit
+  `AS` aliases are unaffected.
 - `lattice info` reports whether the database file has a vector index and
   full-text search, instead of reporting the default configuration of the handle
   used to open it. It previously said `Vector: disabled` for every database, and

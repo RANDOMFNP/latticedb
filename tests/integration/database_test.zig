@@ -2773,3 +2773,41 @@ test "database: relationship patterns traverse in every direction" {
         }
     }
 }
+
+test "database: string literals decode escape sequences" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_string_escape_regression.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_wal = false, .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    // The lexer steps over escapes to find where a string ends but leaves them
+    // in the token text, so decoding has to happen when the literal is built.
+    var create = try db.query(
+        \\CREATE (n:E {quote: "say \"hi\"", tab: "a\tb", newline: "a\nb", backslash: "a\\b"})
+    );
+    create.deinit();
+
+    const cases = [_]struct { property: []const u8, expected: []const u8 }{
+        .{ .property = "quote", .expected = "say \"hi\"" },
+        .{ .property = "tab", .expected = "a\tb" },
+        .{ .property = "newline", .expected = "a\nb" },
+        .{ .property = "backslash", .expected = "a\\b" },
+    };
+
+    for (cases) |case| {
+        var value = (try db.getNodeProperty(1, case.property)) orelse
+            return error.PropertyMissing;
+        defer value.deinit(allocator);
+        switch (value) {
+            .string_val => |s| try std.testing.expectEqualStrings(case.expected, s),
+            else => return error.UnexpectedValueType,
+        }
+    }
+}
