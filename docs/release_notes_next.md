@@ -40,12 +40,23 @@ handle's configuration rather than the database file.
   produced `a`, naming the column after a variable the query never returned.
   Column names now read `a.n`, `count(a)`, and so on, matching Cypher. Explicit
   `AS` aliases are unaffected.
+- `db.query()` runs both reads and writes, consistently across every binding,
+  and picks its transaction mode from the query. Python and TypeScript forced a
+  read-only transaction, so `db.query("CREATE ...")` failed with an unhelpful
+  "query failed"; Go forced a read-write one, so every read took the single
+  writer slot and blocked other reads. Reads now stay concurrent and writes work
+  in all three.
 - `lattice info` reports whether the database file has a vector index and
   full-text search, instead of reporting the default configuration of the handle
   used to open it. It previously said `Vector: disabled` for every database, and
   `FTS: enabled` even for one created with `--no-fts`.
 
 ## API Notes
+
+- New `lattice_query_writes(query)` reports whether executing a prepared query
+  could change the database. Bindings use it to choose a transaction mode; it is
+  also useful directly if you manage transactions yourself, since
+  `lattice_query_execute` takes a transaction you opened.
 
 - New `Database.hasPersistedVectorIndex()` and `Database.hasPersistedFtsIndex()`
   report what a database file contains rather than how the current handle was

@@ -1401,3 +1401,56 @@ class TestPropertyIndexes:
                     txn.find_nodes_by_label_property(
                         "Person", "email", "alice@example.com"
                     )
+
+
+class TestQueryTransactionMode:
+    """db.query() picks its transaction mode from the query itself."""
+
+    def test_query_runs_writes_and_persists_them(self, tmp_path):
+        db_path = tmp_path / "test.db"
+
+        with Database(db_path, create=True) as db:
+            db.query('CREATE (n:A {v: 1})')
+            assert db.query("MATCH (n:A) RETURN n.v")._rows == [{"n.v": 1}]
+
+            db.query("MATCH (n:A) SET n.v = 42")
+            assert db.query("MATCH (n:A) RETURN n.v")._rows == [{"n.v": 42}]
+
+            db.query('MERGE (m:B {k: "x"})')
+            assert db.query("MATCH (m:B) RETURN m.k")._rows == [{"m.k": "x"}]
+
+        # A write run through query() has to commit, not roll back with the
+        # read-only path it used to share.
+        with Database(db_path) as db:
+            assert db.query("MATCH (n:A) RETURN n.v")._rows == [{"n.v": 42}]
+
+    def test_reads_do_not_take_the_writer_slot(self, tmp_path):
+        db_path = tmp_path / "test.db"
+
+        with Database(db_path, create=True) as db:
+            db.query('CREATE (n:A {v: 1})')
+
+            with db.write() as txn:
+                txn.create_node(labels=["Z"], properties={})
+
+                # A read must not need the writer, so an open write transaction
+                # cannot block it.
+                assert db.query("MATCH (n:A) RETURN n.v")._rows == [{"n.v": 1}]
+
+                # A write does need it, and there is only one.
+                with pytest.raises(LatticeLockTimeoutError):
+                    db.query("CREATE (n:B)")
+
+                txn.commit()
+
+    def test_failed_write_leaves_nothing_behind(self, tmp_path):
+        db_path = tmp_path / "test.db"
+
+        with Database(db_path, create=True) as db:
+            before = db.query("MATCH (n) RETURN count(n)")._rows[0]["count(n)"]
+
+            with pytest.raises(LatticeQueryError):
+                db.query("CREATE (n:C) SET n.x = 1/0")
+
+            after = db.query("MATCH (n) RETURN count(n)")._rows[0]["count(n)"]
+            assert before == after

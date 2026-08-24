@@ -2811,3 +2811,47 @@ test "database: string literals decode escape sequences" {
         }
     }
 }
+
+test "database: queryWrites distinguishes reading from writing clauses" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_query_writes_regression.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_wal = false, .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    // Bindings use this to pick a transaction mode. Answering "writes" for a
+    // read would take the single writer slot and stop concurrent reads;
+    // answering "reads" for a write makes the query fail outright.
+    const reads = [_][]const u8{
+        "MATCH (n) RETURN n",
+        "MATCH (n) WHERE n.v = 1 RETURN n.v ORDER BY n.v LIMIT 5",
+        "MATCH (n) WITH n RETURN n",
+        "UNWIND [1, 2] AS x RETURN x",
+        "MATCH (n) RETURN count(n)",
+    };
+    for (reads) |cypher| {
+        try std.testing.expect(!db.queryWrites(cypher));
+    }
+
+    const writes = [_][]const u8{
+        "CREATE (n:A)",
+        "MATCH (n) SET n.v = 1",
+        "MATCH (n) DELETE n",
+        "MATCH (n) REMOVE n.v",
+        "MERGE (n:A {k: 1})",
+        "MATCH (n) WITH n CREATE (m:B)",
+    };
+    for (writes) |cypher| {
+        try std.testing.expect(db.queryWrites(cypher));
+    }
+
+    // A query that cannot be parsed is reported as read-only, so a caller opens
+    // the weaker transaction and lets execution report the real error.
+    try std.testing.expect(!db.queryWrites("this is not cypher"));
+}

@@ -1529,6 +1529,15 @@ export class LatticeFFI {
   }
 
   /**
+   * Whether executing this query could change the database.
+   *
+   * Used to choose between a read-only and a read-write transaction.
+   */
+  queryWrites(query: QueryHandle): boolean {
+    return this.bindings.lattice_query_writes(query);
+  }
+
+  /**
    * Clear the query cache.
    */
   cacheClear(db: DatabaseHandle): void {

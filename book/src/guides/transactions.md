@@ -152,6 +152,25 @@ that serialises them — a lock, a queue, a single writer task — rather than c
 error and retrying in a loop. Retrying works, but it burns effort re-attempting
 something you already know will fail until the other writer finishes.
 
+### Running a query picks its own mode
+
+You do not have to decide this yourself for ordinary queries. `db.query()` looks
+at what the query does and opens the transaction it needs: a read-only one for
+`MATCH` and friends, a read-write one for `CREATE`, `SET`, `DELETE`, `MERGE`,
+and `REMOVE`.
+
+That means a read never takes the writer slot, so reads keep running alongside
+an open write transaction, while a write through `query()` still has to wait its
+turn like any other writer.
+
+```python
+db.query("MATCH (p:Person) RETURN p.name")   # read-only, runs alongside a writer
+db.query("CREATE (p:Person {name: 'Ada'})")  # needs the writer slot
+```
+
+Explicit transactions are still there when you want several statements to
+succeed or fail together, which a single `query()` call cannot express.
+
 ### Schema changes count as writes
 
 Creating or dropping a property index is also refused while a write transaction is

@@ -1202,6 +1202,24 @@ func (tx *Tx) prepareQuery(cypher string) (*queryHandle, error) {
 	return &queryHandle{ptr: query}, nil
 }
 
+// QueryWrites reports whether running cypher could change the database.
+//
+// Callers use this to choose a transaction mode. A query that cannot be
+// prepared is reported as read-only; execution will surface the real error, and
+// a read transaction is the weaker thing to have opened in the meantime.
+func (db *DB) QueryWrites(cypher string) bool {
+	cCypher := C.CString(cypher)
+	defer C.free(unsafe.Pointer(cCypher))
+
+	var query *C.lattice_query
+	if ErrorCode(C.lattice_query_prepare(db.ptr, cCypher, &query)) != ErrorOK {
+		return false
+	}
+	defer C.lattice_query_free(query)
+
+	return bool(C.lattice_query_writes(query))
+}
+
 func (q *queryHandle) bind(name string, value any) error {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))

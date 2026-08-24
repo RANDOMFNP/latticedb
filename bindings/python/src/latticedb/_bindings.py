@@ -1017,6 +1017,9 @@ class LatticeLib:
         self._lib.lattice_query_last_error_code.argtypes = [LatticeQuery]
         self._lib.lattice_query_last_error_code.restype = c_char_p
 
+        self._lib.lattice_query_writes.argtypes = [LatticeQuery]
+        self._lib.lattice_query_writes.restype = c_bool
+
         self._lib.lattice_query_last_error_has_location.argtypes = [LatticeQuery]
         self._lib.lattice_query_last_error_has_location.restype = c_bool
 

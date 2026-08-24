@@ -39,6 +39,23 @@ pub const Query = struct {
         _ = self;
         // All nodes allocated from arena, freed together
     }
+
+    /// Whether running this query can change the database.
+    ///
+    /// Callers use this to decide whether a query needs a read-write
+    /// transaction. Only one write transaction may be open at a time, so
+    /// running every query as a writer would serialise reads that could have
+    /// run together, and running every query as a reader would make writes
+    /// impossible. Clauses do not nest, so a scan of the top level is enough.
+    pub fn writesData(self: *const Query) bool {
+        for (self.clauses) |clause| {
+            switch (clause) {
+                .create, .delete, .set, .remove, .merge => return true,
+                .match, .where, .return_, .order_by, .limit, .skip, .with, .unwind => {},
+            }
+        }
+        return false;
+    }
 };
 
 /// A single clause in a query

@@ -527,6 +527,7 @@ export interface LatticeBindings {
   lattice_query_last_error_stage: (query: unknown) => number;
   lattice_query_last_error_message: (query: unknown) => string | null;
   lattice_query_last_error_code: (query: unknown) => string | null;
+  lattice_query_writes: (query: unknown) => boolean;
   lattice_query_last_error_has_location: (query: unknown) => boolean;
   lattice_query_last_error_line: (query: unknown) => number;
   lattice_query_last_error_column: (query: unknown) => number;
@@ -1032,6 +1033,9 @@ function createBindings(): LatticeBindings {
       QueryPtr,
     ]),
     lattice_query_last_error_code: lib.func('lattice_query_last_error_code', 'str', [
+      QueryPtr,
+    ]),
+    lattice_query_writes: lib.func('lattice_query_writes', 'bool', [
       QueryPtr,
     ]),
     lattice_query_last_error_has_location: lib.func('lattice_query_last_error_has_location', 'bool', [

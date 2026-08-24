@@ -145,7 +145,13 @@ func (db *DB) Query(cypher string, params map[string]Value) (QueryResult, error)
 		return nil
 	}
 
-	if db != nil && db.options.ReadOnly {
+	// Only one write transaction may be open at a time, so running every query
+	// through Update would serialise reads that could have run together. Ask
+	// the query which mode it actually needs.
+	if db == nil || db.raw == nil {
+		return result, ErrDatabaseClosed
+	}
+	if db.options.ReadOnly || !db.raw.QueryWrites(cypher) {
 		return result, db.View(run)
 	}
 	return result, db.Update(run)

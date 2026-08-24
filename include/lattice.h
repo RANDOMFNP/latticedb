@@ -909,6 +909,13 @@ lattice_error lattice_query_execute(
 lattice_query_error_stage lattice_query_last_error_stage(lattice_query* query);
 const char* lattice_query_last_error_message(lattice_query* query);
 const char* lattice_query_last_error_code(lattice_query* query); /* nullable */
+/* Whether executing this query could change the database.
+ * Bindings use this to choose between a read-only and a read-write
+ * transaction. Returns false for a query that does not parse; execution
+ * reports the parse error, and a read transaction is the weaker thing to
+ * have opened in the meantime. */
+bool lattice_query_writes(lattice_query* query);
+
 bool lattice_query_last_error_has_location(lattice_query* query);
 uint32_t lattice_query_last_error_line(lattice_query* query);     /* 1-based, 0 if unavailable */
 uint32_t lattice_query_last_error_column(lattice_query* query);   /* 1-based, 0 if unavailable */

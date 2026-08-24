@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from latticedb._bindings import (
     LATTICE_TXN_READ_ONLY,
+    LATTICE_TXN_READ_WRITE,
     LATTICE_VALUE_NULL,
     LatticeNodeId,
     LatticeValue,
@@ -286,9 +287,13 @@ class Database:
                         check_error(code)
 
             # Begin a read-only transaction for the query
+            # A read-only transaction cannot run CREATE, SET, DELETE, MERGE, or
+            # REMOVE, and a read-write one takes the single writer slot, which
+            # would stop concurrent reads. Ask the query which it needs.
+            writes = bool(lib._lib.lattice_query_writes(query_ptr))
             code = lib._lib.lattice_begin(
                 self._handle,
-                LATTICE_TXN_READ_ONLY,
+                LATTICE_TXN_READ_WRITE if writes else LATTICE_TXN_READ_ONLY,
                 byref(txn_ptr),
             )
             check_error(code)
@@ -323,10 +328,23 @@ class Database:
                     row[col_name] = value_to_python(c_value)
                 rows.append(row)
 
+            # Every value has been copied into Python objects by this point, so
+            # the result can be released before the transaction is resolved.
+            lib._lib.lattice_result_free(result_ptr)
+            result_ptr = c_void_p()
+
+            if writes:
+                # The rollback in `finally` would otherwise discard the write.
+                code = lib._lib.lattice_commit(txn_ptr)
+                txn_ptr = c_void_p()
+                check_error(code)
+
             return QueryResult(columns=columns, _rows=rows)
 
         finally:
-            # Clean up in reverse order
+            # Clean up in reverse order. A transaction still open here either
+            # was read-only or belongs to a query that failed, so rolling back
+            # is right in both cases.
             if result_ptr.value:
                 lib._lib.lattice_result_free(result_ptr)
             if txn_ptr.value:

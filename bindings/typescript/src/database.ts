@@ -196,10 +196,15 @@ export class Database {
         }
       }
 
-      // Execute within an auto-created read transaction
-      const txnHandle = ffi.begin(this.dbHandle!, true);
+      // A read-only transaction cannot run CREATE, SET, DELETE, MERGE, or
+      // REMOVE, and a read-write one takes the single writer slot, which
+      // would stop concurrent reads. Ask the query which it needs.
+      const writes = ffi.queryWrites(query);
+      const txnHandle = ffi.begin(this.dbHandle!, !writes);
+      let settled = false;
       try {
         const result = ffi.queryExecute(query, txnHandle);
+        let resultReleased = false;
         try {
           // Read columns
           const columnCount = ffi.resultColumnCount(result);
@@ -218,12 +223,28 @@ export class Database {
             rows.push(row);
           }
 
+          // Every value is copied out above, so the result can be released
+          // before the transaction is resolved.
+          ffi.resultFree(result);
+          resultReleased = true;
+
+          if (writes) {
+            // Rolling back in `finally` would discard the write.
+            ffi.commit(txnHandle);
+            settled = true;
+          }
+
           return { columns, rows };
         } finally {
-          ffi.resultFree(result);
+          if (!resultReleased) {
+            ffi.resultFree(result);
+          }
         }
       } finally {
-        ffi.rollback(txnHandle);
+        // Still open means a read, or a query that failed. Both roll back.
+        if (!settled) {
+          ffi.rollback(txnHandle);
+        }
       }
     } finally {
       ffi.queryFree(query);

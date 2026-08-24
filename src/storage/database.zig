@@ -6577,6 +6577,25 @@ pub const Database = struct {
     ///     }
     /// }
     /// ```
+    /// Whether running `cypher` could change the database.
+    ///
+    /// Callers use this to pick a transaction mode. Only one write transaction
+    /// may be open at a time, so running every query as a writer serialises
+    /// reads that could have run concurrently, while running every query as a
+    /// reader makes writes impossible. Answering per query avoids both.
+    ///
+    /// A query that does not parse is reported as read-only. Execution will
+    /// reject it with a parse error either way, and a read transaction is the
+    /// weaker thing to have opened.
+    pub fn queryWrites(self: *Self, cypher: []const u8) bool {
+        var parser = Parser.init(self.allocator, cypher);
+        defer parser.deinit();
+
+        const parse_result = parser.parse();
+        const parsed = parse_result.query orelse return false;
+        return parsed.writesData();
+    }
+
     pub fn query(self: *Self, cypher: []const u8) QueryError!QueryResult {
         var detailed = try self.queryDetailedInTxn(null, cypher);
         switch (detailed) {

@@ -595,6 +595,34 @@ lattice_commit(txn);
 lattice_query_free(query);
 ```
 
+### Choosing a Transaction Mode
+
+`lattice_query_execute` takes a transaction you opened, which means you have to
+decide up front whether the query needs to write. Ask it:
+
+```c
+lattice_query* query;
+lattice_query_prepare(db, cypher, &query);
+
+lattice_txn* txn;
+lattice_begin(db,
+              lattice_query_writes(query) ? LATTICE_TXN_READ_WRITE
+                                          : LATTICE_TXN_READ_ONLY,
+              &txn);
+```
+
+This matters because the two modes fail in opposite directions. A read-only
+transaction cannot run `CREATE`, `SET`, `DELETE`, `MERGE`, or `REMOVE`. A
+read-write transaction takes the single writer slot, so opening one for a plain
+read stops other reads running alongside it.
+
+A query that does not parse is reported as not writing. Execution will report
+the parse error, and a read transaction is the weaker thing to have opened in
+the meantime.
+
+Remember to commit rather than roll back when the query wrote something, or the
+work is discarded.
+
 ### Finding Out What Went Wrong
 
 When `lattice_query_prepare` or `lattice_query_execute` fails, the return code

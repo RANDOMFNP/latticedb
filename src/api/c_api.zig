@@ -3178,6 +3178,22 @@ pub export fn lattice_query_last_error_code(query: ?*lattice_query) [*c]const u8
 }
 
 /// Whether the last query diagnostic includes source location fields.
+/// Whether executing this query could change the database.
+///
+/// Bindings call this to choose between a read-only and a read-write
+/// transaction. Returns false for a query that does not parse; execution will
+/// report the parse error, and a read transaction is the weaker thing to have
+/// opened in the meantime.
+pub export fn lattice_query_writes(query: ?*lattice_query) bool {
+    const query_handle = toHandle(QueryHandle, query) orelse return false;
+
+    query_handle.db_handle.mutex.lock();
+    defer query_handle.db_handle.mutex.unlock();
+    if (ensureActiveDbLocked(query_handle.db_handle) != .ok) return false;
+
+    return query_handle.db_handle.db.queryWrites(query_handle.cypher);
+}
+
 pub export fn lattice_query_last_error_has_location(query: ?*lattice_query) bool {
     const query_handle = toHandle(QueryHandle, query) orelse return false;
     return query_handle.last_error_has_location;
