@@ -321,6 +321,67 @@ query, and copying both files catches them at different instants and fails on
 open. Neither announces itself at copy time — you find out at restore. Use
 `backup`, or stop the process first.
 
+### Shipping changes somewhere else
+
+A backup taken by hand is only as good as the last time you remembered to take
+one. `replicate` keeps a directory up to date with a database, so a failed disk
+costs you the last few seconds of writes rather than everything since your last
+copy:
+
+```bash
+lattice replicate social.lattice --to=/mnt/backup/social
+```
+
+```text
+Started generation 1 for social.lattice in /mnt/backup/social
+  Snapshot bytes:  73728
+  Generation:      1
+  Frames shipped:  0
+  Bytes shipped:   0
+  Duration:        2 ms
+```
+
+The first pass copies the whole database. Every pass after that copies only the
+changes since the last one, which is why running it often is cheap:
+
+```text
+Shipped social.lattice to /mnt/backup/social
+  Generation:      1
+  Frames shipped:  5
+  Bytes shipped:   20480
+  Duration:        2 ms
+```
+
+A pass with nothing to ship is normal and is not an error. It tells you so and
+exits successfully, which means you can put this on a timer without your logs
+filling up with things that look like failures.
+
+Add `--follow` to leave it running instead:
+
+```bash
+lattice replicate social.lattice --to=/mnt/backup/social --follow --interval=30
+```
+
+Inside the destination you will find a manifest, a snapshot, and the changes
+that have arrived since:
+
+```text
+/mnt/backup/social/manifest.json
+/mnt/backup/social/gen-0000000001/snapshot.lattice
+/mnt/backup/social/gen-0000000001/frames/0000000012-0000000016.frames
+```
+
+Every so often LatticeDB folds pending changes into the database file and starts
+the log over. When that happens, replication starts a **generation**: a fresh
+snapshot, followed by the changes that came after it. Older generations are left
+alone, because restoring to a moment inside one still needs them.
+
+There is one important limit. This command opens the database, and LatticeDB does
+not lock a database across processes, so you must not point it at a database
+another process has open. If you want to replicate a database while your
+application is using it, call `replicateTo` on the handle your application
+already has, and use this command for the case where nothing else is running.
+
 ### Flushing pending writes
 
 Changes are written to a write-ahead log first, and folded into the database file
@@ -416,6 +477,7 @@ lattice exec social.lattice --query="MATCH (p:Person) RETURN p.name" --format=js
 | `compact <path>` | Give free pages at the end of the file back to the OS |
 | `checkpoint <path>` | Flush pending writes into the file and reset the log |
 | `backup <path>` | Copy to another file while the database stays open |
+| `replicate <path>` | Keep a directory up to date with the database |
 | `check <path>` | Verify page checksums in the main file |
 | `query <path>` | Open an interactive Cypher shell |
 | `exec <path>` | Run one query and exit |

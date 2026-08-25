@@ -224,9 +224,34 @@ truncation as `Rewound` rather than letting a follower carry on counting through
 frame numbers that no longer mean what it thinks. `readFrameRetrying` handles the
 transient case.
 
-**Phase 4 — `lattice replicate`.** The continuous loop, with a `file://`
-destination first. Local destinations are easier to test and are genuinely
-useful for shipping to a mounted volume or a second disk.
+**Phase 4 — `lattice replicate`.** *Done.* `Database.replicateTo` ships changes
+into a directory, and `lattice replicate` wraps it with a `--follow` loop. The
+destination holds a manifest, a snapshot per generation, and frame segments named
+for the range they cover. Segments and the manifest are written beside their final
+name and renamed into place, so an interrupted pass leaves nothing that looks
+complete.
+
+Two things came out differently from the sketch above.
+
+Replication turned out to belong *inside* the process rather than beside it. A
+generation opens with a snapshot, a snapshot needs no writes in flight, and there
+is no cross-process locking to arrange that from outside. Reading frames from
+another process is still perfectly safe, as Phase 3 showed; taking the snapshot
+is not.
+
+The generation counter went into the database file header rather than the log.
+`checkpoint_seq` had been sitting there unused since the format was written, so
+no format change was needed. It also turned out to be the only place the counter
+*could* live, because closing a database folds changes into the file: two runs of
+a command-line tool can move an arbitrary amount of data while the log looks
+untouched at both ends. Anything kept in the log is thrown away by exactly the
+event it is supposed to record.
+
+Building this also turned up a bug that would have made the whole feature a lie.
+A writing query that was not handed a transaction ran straight against the pages
+and never touched the log, which is how the command line and every client library
+issue writes. A backup would have missed nearly everything and reported success.
+That is fixed separately, because it was a durability bug in its own right.
 
 **Phase 5 — object storage and restore.** S3-compatible destinations, the
 manifest format, `lattice restore`, and point-in-time selection.
