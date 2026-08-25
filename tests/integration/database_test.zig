@@ -3351,7 +3351,9 @@ test "database: replication ships a snapshot and then only new frames" {
 
     // Frames below this point are already covered by the snapshot, so shipping
     // picks up from here rather than from zero.
-    const snapshot_frames = ((try lattice.storage.replicate.readManifest(allocator, dest)).?).frames_shipped;
+    var opened = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
+    const snapshot_frames = opened.current().?.frames_shipped;
+    opened.deinit(allocator);
     try std.testing.expect(snapshot_frames > 0);
 
     // New writes are shipped as frames against the generation already there.
@@ -3414,13 +3416,18 @@ test "database: replication ships a snapshot and then only new frames" {
         }
     }
 
-    const manifest = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
-    try std.testing.expectEqual(@as(u64, 1), manifest.generation);
-    try std.testing.expectEqual(
-        second_end + third.frames_shipped,
-        manifest.frames_shipped,
-    );
-    try std.testing.expect(manifest.has_fingerprint);
+    var manifest = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
+    defer manifest.deinit(allocator);
+    const gen = manifest.current().?;
+    try std.testing.expectEqual(@as(u64, 1), gen.number);
+    try std.testing.expectEqual(second_end + third.frames_shipped, gen.frames_shipped);
+    try std.testing.expect(gen.has_fingerprint);
+
+    // Both passes that shipped anything left a segment recording its range.
+    try std.testing.expectEqual(@as(usize, 2), gen.segments.len);
+    try std.testing.expectEqual(snapshot_frames, gen.segments[0].from);
+    try std.testing.expectEqual(second_end, gen.segments[0].to);
+    try std.testing.expectEqual(second_end, gen.segments[1].from);
 }
 
 test "database: replication starts a new generation after the log is truncated" {
@@ -3450,7 +3457,9 @@ test "database: replication starts a new generation after the log is truncated" 
     const first = try db.replicateTo(dest);
     try std.testing.expectEqual(@as(u64, 1), first.generation);
 
-    const first_end = ((try lattice.storage.replicate.readManifest(allocator, dest)).?).frames_shipped;
+    var opened = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
+    const first_end = opened.current().?.frames_shipped;
+    opened.deinit(allocator);
 
     try writeNodes(db, "Q", 200);
     const second = try db.replicateTo(dest);
@@ -3473,8 +3482,14 @@ test "database: replication starts a new generation after the log is truncated" 
         (try segmentSize(dest, 1, first_end, first_end + second.frames_shipped)) > 0,
     );
 
-    const manifest = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
-    try std.testing.expectEqual(@as(u64, 2), manifest.generation);
+    var manifest = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
+    defer manifest.deinit(allocator);
+    try std.testing.expectEqual(@as(u64, 2), manifest.current().?.number);
+
+    // The older generation is kept, along with the segments a restore into it
+    // would need.
+    try std.testing.expectEqual(@as(usize, 2), manifest.generations.len);
+    try std.testing.expect(manifest.generations[0].segments.len > 0);
 }
 
 test "database: replication refuses a destination holding another database" {
@@ -3607,4 +3622,193 @@ test "database: a writing query given a transaction does not open its own" {
     var counted = try db.query("MATCH (p:Person) RETURN p.name AS name");
     defer counted.deinit();
     try std.testing.expectEqual(@as(usize, 0), counted.rowCount());
+}
+
+/// Count the Person nodes in a database file, opening it fresh.
+fn countPeople(path: []const u8) !usize {
+    const allocator = std.testing.allocator;
+    const db = try Database.open(allocator, path, .{});
+    defer db.close();
+
+    var result = try db.query("MATCH (p:Person) RETURN p.name AS name");
+    defer result.deinit();
+    return result.rowCount();
+}
+
+test "database: a restore brings back everything that was shipped" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_restore.ltdb";
+    const wal_path = "/tmp/lattice_restore.ltdb-wal";
+    const dest = "/tmp/lattice_restore_dest";
+    const out = "/tmp/lattice_restore_out.ltdb";
+    const out_wal = "/tmp/lattice_restore_out.ltdb-wal";
+
+    for ([_][]const u8{ path, wal_path, out, out_wal }) |p| {
+        @import("compat").fs.cwd().deleteFile(p) catch {};
+    }
+    @import("compat").fs.cwd().deleteTree(dest) catch {};
+    defer {
+        for ([_][]const u8{ path, wal_path, out, out_wal }) |p| {
+            @import("compat").fs.cwd().deleteFile(p) catch {};
+        }
+        @import("compat").fs.cwd().deleteTree(dest) catch {};
+    }
+
+    {
+        var db = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{
+                .enable_fts = false,
+                .enable_vector = false,
+                .auto_checkpoint = null,
+            },
+        });
+        defer db.close();
+
+        // Written before the first pass, so these live in the snapshot.
+        try writeNodes(db, "Person", 20);
+        _ = try db.replicateTo(dest);
+
+        // Written after it, so these can only come back through the frames.
+        try writeNodes(db, "Person", 30);
+        const shipped = try db.replicateTo(dest);
+        try std.testing.expect(shipped.frames_shipped > 0);
+    }
+
+    try std.testing.expectEqual(@as(usize, 50), try countPeople(path));
+
+    const stats = try lattice.storage.restore.restore(allocator, dest, out, .{});
+    try std.testing.expectEqual(@as(u64, 1), stats.generation);
+    try std.testing.expect(stats.segments_applied > 0);
+    try std.testing.expect(stats.frames_applied > 0);
+
+    // What comes back is a single file. A restore that left a log beside it
+    // would be a pair the caller has to know to keep together. This is checked
+    // before anything opens the database, because opening one creates a log.
+    try std.testing.expectError(
+        error.FileNotFound,
+        @import("compat").fs.cwd().access(out_wal, .{}),
+    );
+
+    // The snapshot alone holds 20. Getting all 50 back is only possible if the
+    // shipped frames were replayed on top of it.
+    try std.testing.expectEqual(@as(usize, 50), try countPeople(out));
+}
+
+test "database: a restore can ask for an earlier moment" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_restore_pit.ltdb";
+    const wal_path = "/tmp/lattice_restore_pit.ltdb-wal";
+    const dest = "/tmp/lattice_restore_pit_dest";
+    const out = "/tmp/lattice_restore_pit_out.ltdb";
+    const out_wal = "/tmp/lattice_restore_pit_out.ltdb-wal";
+
+    for ([_][]const u8{ path, wal_path, out, out_wal }) |p| {
+        @import("compat").fs.cwd().deleteFile(p) catch {};
+    }
+    @import("compat").fs.cwd().deleteTree(dest) catch {};
+    defer {
+        for ([_][]const u8{ path, wal_path, out, out_wal }) |p| {
+            @import("compat").fs.cwd().deleteFile(p) catch {};
+        }
+        @import("compat").fs.cwd().deleteTree(dest) catch {};
+    }
+
+    {
+        var db = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{
+                .enable_fts = false,
+                .enable_vector = false,
+                .auto_checkpoint = null,
+            },
+        });
+        defer db.close();
+
+        try writeNodes(db, "Person", 10);
+        _ = try db.replicateTo(dest);
+
+        try writeNodes(db, "Person", 10);
+        _ = try db.replicateTo(dest);
+
+        try writeNodes(db, "Person", 10);
+        _ = try db.replicateTo(dest);
+    }
+
+    var manifest = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
+    defer manifest.deinit(allocator);
+
+    const gen = manifest.current().?;
+    try std.testing.expectEqual(@as(usize, 2), gen.segments.len);
+
+    // Asking for the moment the first pass finished must leave the second pass
+    // out, which is the whole point of recording when each one landed.
+    const first_pass_at = gen.segments[0].shipped_at_ms;
+    try std.testing.expect(gen.segments[1].shipped_at_ms > first_pass_at);
+
+    const stats = try lattice.storage.restore.restore(allocator, dest, out, .{
+        .at_ms = first_pass_at,
+        .overwrite = true,
+    });
+    try std.testing.expectEqual(@as(usize, 1), stats.segments_applied);
+    try std.testing.expectEqual(first_pass_at, stats.restored_to_ms);
+    try std.testing.expectEqual(@as(usize, 20), try countPeople(out));
+
+    // Asking for nothing in particular gets everything.
+    const latest = try lattice.storage.restore.restore(allocator, dest, out, .{
+        .overwrite = true,
+    });
+    try std.testing.expectEqual(@as(usize, 2), latest.segments_applied);
+    try std.testing.expectEqual(@as(usize, 30), try countPeople(out));
+}
+
+test "database: a restore refuses to overwrite unless asked" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_restore_guard.ltdb";
+    const wal_path = "/tmp/lattice_restore_guard.ltdb-wal";
+    const dest = "/tmp/lattice_restore_guard_dest";
+    const out = "/tmp/lattice_restore_guard_out.ltdb";
+    const out_wal = "/tmp/lattice_restore_guard_out.ltdb-wal";
+
+    for ([_][]const u8{ path, wal_path, out, out_wal }) |p| {
+        @import("compat").fs.cwd().deleteFile(p) catch {};
+    }
+    @import("compat").fs.cwd().deleteTree(dest) catch {};
+    defer {
+        for ([_][]const u8{ path, wal_path, out, out_wal }) |p| {
+            @import("compat").fs.cwd().deleteFile(p) catch {};
+        }
+        @import("compat").fs.cwd().deleteTree(dest) catch {};
+    }
+
+    {
+        var db = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{
+                .enable_fts = false,
+                .enable_vector = false,
+                .auto_checkpoint = null,
+            },
+        });
+        defer db.close();
+        try writeNodes(db, "Person", 5);
+        _ = try db.replicateTo(dest);
+    }
+
+    _ = try lattice.storage.restore.restore(allocator, dest, out, .{});
+
+    // A restore writes over whatever is at the output path, and the thing most
+    // likely to be there is a database somebody still wants.
+    try std.testing.expectError(
+        lattice.storage.restore.RestoreError.OutputExists,
+        lattice.storage.restore.restore(allocator, dest, out, .{}),
+    );
+
+    // An empty destination has nothing to offer and says so.
+    try std.testing.expectError(
+        lattice.storage.restore.RestoreError.NoBackup,
+        lattice.storage.restore.restore(allocator, "/tmp/lattice_restore_nothing", out, .{
+            .overwrite = true,
+        }),
+    );
 }
