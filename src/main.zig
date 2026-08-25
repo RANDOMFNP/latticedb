@@ -18,6 +18,7 @@ pub const storage = struct {
     pub const buffer_pool = @import("storage/buffer_pool.zig");
     pub const btree = @import("storage/btree.zig");
     pub const wal = @import("storage/wal.zig");
+    pub const wal_reader = @import("storage/wal_reader.zig");
     pub const checkpoint = @import("storage/checkpoint.zig");
     pub const recovery = @import("storage/recovery.zig");
     pub const database = @import("storage/database.zig");

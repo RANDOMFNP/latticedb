@@ -45,7 +45,7 @@ pub const WalError = error{
     EndOfLog,
 };
 
-const WAL_HEADER_SIZE: u64 = @sizeOf(WalHeader);
+pub const WAL_HEADER_SIZE: u64 = @sizeOf(WalHeader);
 const MAX_FRAME_DATA_SIZE: usize = MAX_FRAME_SIZE - @sizeOf(WalFrameHeader);
 pub const MAX_RECORD_PAYLOAD_SIZE: usize = MAX_FRAME_DATA_SIZE - @sizeOf(WalRecordHeader);
 

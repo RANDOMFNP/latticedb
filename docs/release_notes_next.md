@@ -36,6 +36,14 @@ longer grows without limit.
 
 ## API Notes
 
+- New `storage/wal_reader.zig` reads a write-ahead log from outside the process
+  that writes it, which the existing `WalIterator` cannot do because it needs a
+  live `WalManager`. It verifies the header and every frame, reports a frame the
+  writer has not published yet as `FrameNotYetDurable`, reports a truncation as
+  `Rewound` so a follower does not carry on through frame numbers that no longer
+  refer to the same records, and offers `readFrameRetrying` for the torn-read
+  case. Groundwork for continuous backup; not yet wired to anything.
+
 - New `Database.backup(dest_path)` copies the database to another path and
   reports bytes copied, pages, pages flushed, and duration. It refuses to run
   while a transaction is open.

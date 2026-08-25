@@ -3090,3 +3090,185 @@ test "database: backup refuses to run while a transaction is open" {
     // With nothing in flight it goes through.
     _ = try db.backup(dest);
 }
+
+test "database: WAL reader follows a log the writer still owns" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_wal_reader.ltdb";
+    const wal_path = "/tmp/lattice_wal_reader.ltdb-wal";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+
+    const wal_reader = lattice.storage.wal_reader;
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+            // Truncation is what the reader has to notice, so drive it by hand.
+            .auto_checkpoint = null,
+        },
+    });
+    defer db.close();
+
+    var i: usize = 0;
+    while (i < 300) : (i += 1) {
+        var txn = try db.beginTransaction(.read_write);
+        const node = try db.createNode(&txn, &[_][]const u8{"P"});
+        try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+        try db.commitTransaction(&txn);
+    }
+
+    var posix = lattice.storage.vfs.PosixVfs.init(allocator);
+    const vfs = posix.vfs();
+
+    // The reader opens the same file the writer still has open.
+    var reader = try wal_reader.WalReader.open(allocator, vfs, wal_path, null);
+    defer reader.close();
+
+    try std.testing.expect(reader.frame_count > 0);
+
+    // Every published frame reads back and passes its own checksum.
+    var n: u64 = 0;
+    var records: u64 = 0;
+    while (n < reader.frame_count) : (n += 1) {
+        const frame = try reader.readFrame(n);
+        try std.testing.expectEqual(n, frame.number);
+        try std.testing.expectEqual(@as(usize, reader.frame_size), frame.raw.len);
+        records += frame.record_count;
+    }
+    try std.testing.expect(records > 0);
+
+    // Nothing at or past frame_count has been published yet.
+    try std.testing.expectError(
+        wal_reader.WalReaderError.FrameNotYetDurable,
+        reader.readFrame(reader.frame_count),
+    );
+
+    // Writing more and refreshing exposes the new frames.
+    const before = reader.frame_count;
+    i = 0;
+    while (i < 300) : (i += 1) {
+        var txn = try db.beginTransaction(.read_write);
+        const node = try db.createNode(&txn, &[_][]const u8{"Q"});
+        try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+        try db.commitTransaction(&txn);
+    }
+    try reader.refresh();
+    try std.testing.expect(reader.frame_count > before);
+
+    // A checkpoint resets frame numbering, which the reader must report rather
+    // than silently carry on counting through.
+    _ = try db.checkpoint(.truncate);
+    try std.testing.expectError(wal_reader.WalReaderError.Rewound, reader.refresh());
+
+    // Having reported it once, the reader is usable again for the new generation.
+    try reader.refresh();
+    try std.testing.expectEqual(@as(u64, 0), reader.frame_count);
+}
+
+test "database: WAL reader rejects a log from another database" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_wal_reader_uuid.ltdb";
+    const wal_path = "/tmp/lattice_wal_reader_uuid.ltdb-wal";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+
+    const wal_reader = lattice.storage.wal_reader;
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    var txn = try db.beginTransaction(.read_write);
+    _ = try db.createNode(&txn, &[_][]const u8{"P"});
+    try db.commitTransaction(&txn);
+
+    var posix = lattice.storage.vfs.PosixVfs.init(allocator);
+    const vfs = posix.vfs();
+
+    // A log replayed into the wrong database is not a mistake that announces
+    // itself later, so the reader refuses at open when told what to expect.
+    const wrong_uuid = [_]u8{0xAB} ** 16;
+    try std.testing.expectError(
+        wal_reader.WalReaderError.UuidMismatch,
+        wal_reader.WalReader.open(allocator, vfs, wal_path, wrong_uuid),
+    );
+
+    // The database's own UUID is accepted.
+    var reader = try wal_reader.WalReader.open(allocator, vfs, wal_path, null);
+    defer reader.close();
+    var matching = try wal_reader.WalReader.open(allocator, vfs, wal_path, reader.database_uuid);
+    matching.close();
+}
+
+test "database: WAL reader treats damage as damage and timing as timing" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_wal_reader_torn.ltdb";
+    const wal_path = "/tmp/lattice_wal_reader_torn.ltdb-wal";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+
+    const wal_reader = lattice.storage.wal_reader;
+
+    {
+        var db = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{ .enable_fts = false, .enable_vector = false, .auto_checkpoint = null },
+        });
+        defer db.close();
+
+        var i: usize = 0;
+        while (i < 300) : (i += 1) {
+            var txn = try db.beginTransaction(.read_write);
+            const node = try db.createNode(&txn, &[_][]const u8{"P"});
+            try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+            try db.commitTransaction(&txn);
+        }
+    }
+
+    var posix = lattice.storage.vfs.PosixVfs.init(allocator);
+    const vfs = posix.vfs();
+
+    // Corrupt the middle of a published frame. A torn read clears when retried;
+    // this does not, which is the difference the retry helper has to respect.
+    {
+        var file = try vfs.open(wal_path, .{ .read = true, .write = true });
+        defer file.close();
+        const target_offset = lattice.storage.wal.WAL_HEADER_SIZE +
+            lattice.storage.wal.FRAME_SIZE + 64;
+        try file.write(target_offset, &[_]u8{ 0xDE, 0xAD, 0xBE, 0xEF });
+        try file.sync();
+    }
+
+    var reader = try wal_reader.WalReader.open(allocator, vfs, wal_path, null);
+    defer reader.close();
+
+    // Frame 0 is untouched and still reads.
+    _ = try reader.readFrame(0);
+
+    // Frame 1 fails, and keeps failing however many times it is asked.
+    try std.testing.expectError(
+        wal_reader.WalReaderError.FrameChecksumMismatch,
+        reader.readFrame(1),
+    );
+    try std.testing.expectError(
+        wal_reader.WalReaderError.FrameChecksumMismatch,
+        reader.readFrameRetrying(1, 3, 0),
+    );
+
+    // Retrying a healthy frame returns it rather than burning the attempts.
+    const good = try reader.readFrameRetrying(0, 3, 0);
+    try std.testing.expectEqual(@as(u64, 0), good.number);
+}

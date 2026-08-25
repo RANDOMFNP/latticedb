@@ -207,18 +207,22 @@ around it.
 
 ## Phasing
 
-**Phase 1 — bounded WAL.** Wire up automatic checkpointing with a frame
-threshold and a minimum interval. Add `lattice checkpoint` as a supported
-command. No replication yet. Fixes a real operational problem on its own.
+**Phase 1 — bounded WAL.** *Done.* Automatic checkpointing on a frame threshold,
+plus `lattice checkpoint`. The minimum-interval knob turned out to be actively
+harmful under `.truncate` and defaults to zero; the frame threshold is
+self-limiting because a checkpoint resets the counter.
 
-**Phase 2 — `lattice backup`.** A single command that takes a consistent
-snapshot of a running database: checkpoint, copy, verify. Not continuous, but it
-removes the stop-the-process requirement and is most of the value for many
-users. Ships quickly and is independently useful.
+**Phase 2 — `lattice backup`.** *Done.* `Database.backup` and `lattice backup`
+take a consistent copy of a running database. The copy is standalone, written
+beside the destination and renamed into place, and refused while a transaction is
+open.
 
-**Phase 3 — WAL reader.** A documented, tested API for reading frames from a WAL
-independently of the writer, including the retry-on-checksum-mismatch behaviour.
-This is the piece everything else depends on, and it is testable in isolation.
+**Phase 3 — WAL reader.** *Done.* `storage/wal_reader.zig` opens a log read-only
+and hands back whole frames, independently of the writer. It verifies the header,
+verifies each frame, distinguishes a torn read from real damage, and reports a
+truncation as `Rewound` rather than letting a follower carry on counting through
+frame numbers that no longer mean what it thinks. `readFrameRetrying` handles the
+transient case.
 
 **Phase 4 — `lattice replicate`.** The continuous loop, with a `file://`
 destination first. Local destinations are easier to test and are genuinely
