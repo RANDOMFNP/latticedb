@@ -81,6 +81,11 @@ pub const FileHeader = extern struct {
     schema_page: PageId,
     tree_roots: [MAX_TREES]PageId, // B+Tree root pages
     wal_frame_count: u64,
+    /// How many times the write-ahead log has been reset. Frame numbering
+    /// restarts on every reset, so anything following the log needs this to tell
+    /// frame 40 of one run from frame 40 of the next. It lives in the database
+    /// file rather than the log because the log is exactly what gets thrown
+    /// away, and because a follower has to survive the writer restarting.
     checkpoint_seq: u32,
     reserved1: [4]u8,
     file_uuid: [16]u8,

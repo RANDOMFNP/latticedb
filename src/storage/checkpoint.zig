@@ -125,7 +125,15 @@ pub const Checkpointer = struct {
             .full, .truncate => try self.flushFull(),
         };
 
-        // 4. Sync the database file
+        // 4. Record the coming reset, then sync the database file. The counter
+        //    has to be durable before the log is truncated in step 8, because a
+        //    follower that misses the reset would keep counting through frame
+        //    numbers that no longer mean what it thinks they do.
+        if (mode == .truncate) {
+            self.pm.advanceCheckpointSeq() catch {
+                return CheckpointError.IoError;
+            };
+        }
         self.pm.sync() catch {
             return CheckpointError.IoError;
         };

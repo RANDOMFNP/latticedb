@@ -406,6 +406,18 @@ pub const PageManager = struct {
         try self.writeHeader();
     }
 
+    /// Record that the write-ahead log has been reset, and persist that fact.
+    ///
+    /// This has to reach disk before the log is actually truncated. A counter
+    /// that lags the truncation would let a follower carry on believing it has
+    /// frames it no longer has, whereas one that runs ahead only costs a
+    /// follower an extra snapshot it did not strictly need.
+    pub fn advanceCheckpointSeq(self: *Self) PageManagerError!void {
+        if (self.read_only) return PageManagerError.PermissionDenied;
+        self.header.checkpoint_seq +%= 1;
+        try self.writeHeader();
+    }
+
     /// Get current page count.
     pub fn pageCount(self: *const Self) u32 {
         const file_size = self.file.size() catch return 1;

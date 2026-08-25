@@ -13,26 +13,22 @@
 //! **generation**: it opens with a full snapshot of the database and continues as
 //! a run of frames.
 //!
-//! Nothing on disk records a generation number, so one is worked out here. Two
-//! signals catch a truncation between passes:
+//! The database file header carries `checkpoint_seq`, which advances every time
+//! the log is reset and is made durable before the reset happens. That is the
+//! generation boundary, so a pass that finds a different value than the one
+//! recorded at the destination knows to start over from a fresh snapshot.
 //!
-//! - The log holds fewer frames than have already been shipped. Only a reset
-//!   does that.
-//! - Frame zero no longer matches the checksum recorded when the generation
-//!   opened. A truncation followed by enough writes to pass the old frame count
-//!   hides the first signal; this one still fires, because the new frame zero
-//!   holds different records.
-//! - The log's checkpoint LSN has moved since the last pass. This covers the
-//!   case the other two cannot: a generation that opened with an empty log has
-//!   no frame zero to fingerprint and no shipped frames to fall below, so a
-//!   truncation followed by fresh writes would otherwise look like ordinary
-//!   progress. Every truncation advances the checkpoint LSN, so watching it
-//!   closes that hole.
+//! It has to live in the database file rather than the log, because the log is
+//! precisely what a reset throws away, and because a follower has to survive the
+//! writer process restarting. That second case is not hypothetical: closing a
+//! database checkpoints it, so two runs of a command-line tool can fold an
+//! arbitrary amount of change into the database file leaving no trace in the log
+//! at all. A signal read out of the log would see an empty log both times and
+//! conclude, wrongly, that nothing had happened.
 //!
-//! Storing a generation counter in the log header would be more direct and is
-//! worth doing later. It needs a field in `WalHeader`, whose padding starts at an
-//! offset that will not take a `u64` without moving other fields, so it is a
-//! format change rather than a free one.
+//! Frame zero's checksum is recorded as well and checked alongside it. The
+//! counter is the authority; the fingerprint is a second opinion that costs one
+//! read and catches a destination paired with the wrong database file.
 //!
 //! ## Why the snapshot is taken from inside the process
 //!
@@ -86,9 +82,10 @@ pub const Manifest = struct {
     /// Whether a fingerprint was actually captured. A generation that opened
     /// with an empty log has nothing to fingerprint yet.
     has_fingerprint: bool,
-    /// The log's checkpoint LSN as of the last pass, which is how a truncation
-    /// is noticed while there is still no fingerprint to compare against.
-    checkpoint_lsn: u64,
+    /// The database's reset counter when the generation opened. A different
+    /// value means the log has been reset since, so frame numbers from before
+    /// no longer refer to the same records.
+    checkpoint_seq: u32,
 };
 
 /// What one pass did.
@@ -154,7 +151,7 @@ pub fn readManifest(
         .frames_shipped = 0,
         .generation_fingerprint = 0,
         .has_fingerprint = false,
-        .checkpoint_lsn = 0,
+        .checkpoint_seq = 0,
     };
 
     const uuid_value = switch (root.get("database_uuid") orelse return ReplicateError.UnsupportedManifest) {
@@ -180,9 +177,9 @@ pub fn readManifest(
         .bool => |v| v,
         else => false,
     };
-    manifest.checkpoint_lsn = switch (root.get("checkpoint_lsn") orelse std.json.Value{ .integer = 0 }) {
+    manifest.checkpoint_seq = switch (root.get("checkpoint_seq") orelse return ReplicateError.UnsupportedManifest) {
         .integer => |v| @intCast(v),
-        else => 0,
+        else => return ReplicateError.UnsupportedManifest,
     };
 
     return manifest;
@@ -201,7 +198,7 @@ fn writeManifest(
         \\  "frames_shipped": {d},
         \\  "generation_fingerprint": {d},
         \\  "has_fingerprint": {},
-        \\  "checkpoint_lsn": {d}
+        \\  "checkpoint_seq": {d}
         \\}}
         \\
     , .{
@@ -211,7 +208,7 @@ fn writeManifest(
         manifest.frames_shipped,
         manifest.generation_fingerprint,
         manifest.has_fingerprint,
-        manifest.checkpoint_lsn,
+        manifest.checkpoint_seq,
     }) catch return ReplicateError.OutOfMemory;
     defer allocator.free(body);
 
@@ -242,20 +239,20 @@ fn writeManifest(
 /// Decide whether the destination is still following the same generation.
 fn sameGeneration(
     manifest: Manifest,
+    checkpoint_seq: u32,
     reader: *wal_reader_mod.WalReader,
 ) bool {
+    // The reset counter is the authority. It advances before the log is
+    // truncated and lives in the database file, so it survives both the reset
+    // itself and the writer process going away.
+    if (checkpoint_seq != manifest.checkpoint_seq) return false;
+
     // Fewer frames than already shipped can only mean the log was reset.
     if (reader.frame_count < manifest.frames_shipped) return false;
 
-    // With no fingerprint yet there is nothing to compare frames against, so the
-    // checkpoint LSN is the only signal left. It advances on every truncation,
-    // which is precisely the case that needs catching here.
-    if (!manifest.has_fingerprint) {
-        return reader.checkpoint_lsn == manifest.checkpoint_lsn;
-    }
-
-    // Otherwise frame zero settles it: a truncation replaces it with different
-    // records, so its checksum moves.
+    // Frame zero is a second opinion, and costs one read. It catches a
+    // destination paired with a database whose counter happens to agree.
+    if (!manifest.has_fingerprint) return true;
     if (reader.frame_count == 0) return true;
 
     const frame = reader.readFrame(0) catch return false;
@@ -372,7 +369,7 @@ pub fn replicate(
         .frames_shipped = 0,
         .generation_fingerprint = 0,
         .has_fingerprint = false,
-        .checkpoint_lsn = 0,
+        .checkpoint_seq = 0,
     };
 
     var stats = ReplicateStats{
@@ -384,7 +381,8 @@ pub fn replicate(
         .duration_ns = 0,
     };
 
-    const continuing = existing != null and sameGeneration(manifest, &reader);
+    const continuing = existing != null and
+        sameGeneration(manifest, db.page_manager.getHeader().checkpoint_seq, &reader);
 
     if (!continuing) {
         // Open a new generation: snapshot first, then treat everything already in
@@ -451,9 +449,10 @@ pub fn replicate(
         }
     }
 
-    // Recorded last, so the comparison on the next pass is against the log as it
-    // stood at the end of this one.
-    manifest.checkpoint_lsn = reader.checkpoint_lsn;
+    // Recorded last, because taking the snapshot resets the log and so advances
+    // the counter. The next pass compares against the database as it stood at
+    // the end of this one.
+    manifest.checkpoint_seq = db.page_manager.getHeader().checkpoint_seq;
 
     try writeManifest(allocator, dest_dir, manifest);
 
