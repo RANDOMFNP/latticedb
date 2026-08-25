@@ -1,6 +1,6 @@
 # LatticeDB Next Release Notes
 
-Use this file as the draft for the next release after `0.11.0`.
+Use this file as the draft for the next release after `0.11.1`.
 
 ## Summary
 
