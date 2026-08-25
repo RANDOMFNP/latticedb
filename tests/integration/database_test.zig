@@ -2855,3 +2855,51 @@ test "database: queryWrites distinguishes reading from writing clauses" {
     // the weaker transaction and lets execution report the real error.
     try std.testing.expect(!db.queryWrites("this is not cypher"));
 }
+
+test "database: ORDER BY can reference a RETURN alias" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_order_by_alias_regression.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_wal = false, .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    const a = try db.createNode(null, &[_][]const u8{"P"});
+    const b = try db.createNode(null, &[_][]const u8{"P"});
+    try db.setNodeProperty(null, a, "n", .{ .string_val = "Alice" });
+    try db.setNodeProperty(null, b, "n", .{ .string_val = "Bob" });
+
+    // Sorting runs before projection, so an alias is not a column yet when the
+    // sort is built. The planner substitutes the expression it stands for.
+    {
+        var result = try db.query("MATCH (p:P) RETURN p.n AS who ORDER BY who");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 2), result.rowCount());
+        switch (result.rows[0].values[0]) {
+            .string_val => |s| try std.testing.expectEqualStrings("Alice", s),
+            else => return error.UnexpectedValueType,
+        }
+    }
+
+    // Descending through the alias orders the other way.
+    {
+        var result = try db.query("MATCH (p:P) RETURN p.n AS who ORDER BY who DESC");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 2), result.rowCount());
+        switch (result.rows[0].values[0]) {
+            .string_val => |s| try std.testing.expectEqualStrings("Bob", s),
+            else => return error.UnexpectedValueType,
+        }
+    }
+
+    // A name that is neither a bound variable nor an alias is still an error.
+    try std.testing.expectError(
+        error.SemanticError,
+        db.query("MATCH (p:P) RETURN p.n AS who ORDER BY nope"),
+    );
+}

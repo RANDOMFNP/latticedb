@@ -210,7 +210,7 @@ pub const QueryPlanner = struct {
                     var lookahead = clause_idx + 1;
                     while (lookahead < query.clauses.len) : (lookahead += 1) {
                         switch (query.clauses[lookahead]) {
-                            .order_by => |o| input_for_return = try self.planOrderBy(o, input_for_return),
+                            .order_by => |o| input_for_return = try self.planOrderBy(o, input_for_return, r),
                             .skip => |s| input_for_return = try self.planSkip(s, input_for_return),
                             .limit => |l| input_for_return = try self.planLimit(l, input_for_return),
                             else => break,
@@ -219,7 +219,7 @@ pub const QueryPlanner = struct {
                     current_op = try self.planReturn(r, input_for_return);
                     clause_idx = lookahead - 1;
                 },
-                .order_by => |o| current_op = try self.planOrderBy(o, current_op),
+                .order_by => |o| current_op = try self.planOrderBy(o, current_op, null),
                 .limit => |l| current_op = try self.planLimit(l, current_op),
                 .skip => |s| current_op = try self.planSkip(s, current_op),
                 .create => |c| current_op = try self.planCreate(c, current_op),
@@ -1134,8 +1134,34 @@ pub const QueryPlanner = struct {
         return null;
     }
 
+    /// Resolve `ORDER BY <name>` against the aliases a RETURN introduces.
+    ///
+    /// Sorting happens before projection, so an alias is not yet a column when
+    /// the sort runs. Substituting the expression the alias stands for gives
+    /// the same ordering without needing the projected row.
+    fn resolveOrderAlias(
+        expr: *ast.Expression,
+        ret: ?*const ast.ReturnClause,
+    ) *ast.Expression {
+        const clause = ret orelse return expr;
+        const name = switch (expr.*) {
+            .variable => |v| v.name,
+            else => return expr,
+        };
+        for (clause.items) |item| {
+            const alias = item.alias orelse continue;
+            if (std.mem.eql(u8, alias, name)) return item.expression;
+        }
+        return expr;
+    }
+
     /// Plan an ORDER BY clause
-    fn planOrderBy(self: *Self, order: *const ast.OrderByClause, input: ?Operator) PlannerError!Operator {
+    fn planOrderBy(
+        self: *Self,
+        order: *const ast.OrderByClause,
+        input: ?Operator,
+        ret: ?*const ast.ReturnClause,
+    ) PlannerError!Operator {
         const input_op = input orelse return PlannerError.InvalidQuery;
 
         var sort_items = self.allocator.alloc(limit_ops.SortItem, order.items.len) catch {
@@ -1145,7 +1171,7 @@ pub const QueryPlanner = struct {
 
         for (order.items, 0..) |item, i| {
             sort_items[i] = .{
-                .expr = item.expression,
+                .expr = resolveOrderAlias(item.expression, ret),
                 .descending = item.descending,
             };
         }

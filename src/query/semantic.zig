@@ -181,6 +181,19 @@ pub const SemanticAnalyzer = struct {
         for (clause.items) |item| {
             self.analyzeExpression(item.expression);
         }
+
+        // An alias introduced here is a name a following ORDER BY may use, as
+        // in `RETURN count(d) AS papers ORDER BY papers`. Register it so the
+        // reference resolves; the planner substitutes the aliased expression
+        // when it builds the sort.
+        for (clause.items) |item| {
+            const alias = item.alias orelse continue;
+            self.variables.put(alias, .{
+                .name = alias,
+                .kind = .alias,
+                .location = item.expression.getLocation(),
+            }) catch {};
+        }
     }
 
     fn analyzeOrderByClause(self: *Self, clause: *const ast.OrderByClause) void {
