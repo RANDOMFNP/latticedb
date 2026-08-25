@@ -354,6 +354,13 @@ pub const DatabaseConfig = struct {
     enable_query_cache: bool = true,
     /// Maximum number of cached query entries
     query_cache_size: u32 = 128,
+    /// Policy for checkpointing automatically as the WAL grows.
+    ///
+    /// Without this the WAL only resets when the database is closed, so a
+    /// long-running process accumulates frames without limit and pays for them
+    /// again in recovery time. Set to null to opt out and manage checkpoints by
+    /// hand.
+    auto_checkpoint: ?checkpoint_mod.AutoCheckpointConfig = .{},
 
     /// Compute effective buffer pool size based on enabled features.
     /// Priority: LATTICE_BUFFER_POOL_MB env var > explicit buffer_pool_size > auto-sizing.
@@ -744,6 +751,8 @@ pub const Database = struct {
     // Transactions
     txn_manager: ?TxnManager,
     txn_overlays: std.AutoHashMap(u64, TxnOverlay),
+    /// When the last automatic checkpoint ran, for the minimum-interval check.
+    last_auto_checkpoint_ns: i128,
     active_writer_txn_id: ?u64,
     stream_mutex: @import("compat").Mutex,
     stream_cond: @import("compat").Condition,
@@ -966,6 +975,7 @@ pub const Database = struct {
             self.txn_manager = TxnManager.init(allocator, wal);
         }
         self.txn_overlays = std.AutoHashMap(u64, TxnOverlay).init(allocator);
+        self.last_auto_checkpoint_ns = @import("compat").nanoTimestamp();
         self.active_writer_txn_id = null;
         self.stream_epoch = 0;
 
@@ -1023,13 +1033,67 @@ pub const Database = struct {
     }
 
     pub fn checkpointWal(self: *Self, mode: checkpoint_mod.CheckpointMode) DatabaseError!void {
+        _ = self.checkpoint(mode) catch |err| return err;
+    }
+
+    /// Flush dirty pages to the database file and report what happened.
+    ///
+    /// `.truncate` additionally resets the WAL, which is what bounds its size.
+    /// Callers that only want the pages durable, such as a backup taking a
+    /// consistent snapshot of a running database, want `.full` instead: it
+    /// leaves frame numbering alone so anything reading the WAL keeps its place.
+    ///
+    /// Returns null stats for a read-only handle or one opened without a WAL,
+    /// where there is nothing to do.
+    pub fn checkpoint(self: *Self, mode: checkpoint_mod.CheckpointMode) DatabaseError!?checkpoint_mod.CheckpointStats {
+        if (self.read_only) return null;
+        const wal = if (self.wal) |*w| w else return null;
+
+        var checkpointer = checkpoint_mod.Checkpointer.init(
+            self.allocator,
+            &self.buffer_pool,
+            &self.page_manager,
+            wal,
+        );
+        return checkpointer.checkpoint(mode) catch {
+            return DatabaseError.IoError;
+        };
+    }
+
+    /// Checkpoint if the WAL has grown enough and it is safe to do so.
+    ///
+    /// Called after a commit. Deliberately best-effort: a commit that has already
+    /// succeeded must not be reported as failed because housekeeping could not
+    /// run. A skipped checkpoint costs disk space, and the next commit tries
+    /// again.
+    ///
+    /// Truncation discards the whole WAL, so it is only safe once every dirty
+    /// page is durable in the main file and no other transaction is relying on
+    /// frames still being there. The checkpoint itself handles the first, and
+    /// the overlay count handles the second.
+    fn maybeAutoCheckpoint(self: *Self) void {
+        const policy = self.config.auto_checkpoint orelse return;
         if (self.read_only) return;
-        if (self.wal) |*wal| {
-            var checkpointer = checkpoint_mod.Checkpointer.init(self.allocator, &self.buffer_pool, &self.page_manager, wal);
-            _ = checkpointer.checkpoint(mode) catch {
-                return DatabaseError.IoError;
-            };
-        }
+        if (self.txn_overlays.count() != 0) return;
+
+        const wal = if (self.wal) |*w| w else return;
+        if (wal.header.frame_count < policy.max_wal_frames) return;
+
+        const now = @import("compat").nanoTimestamp();
+        const elapsed = now - self.last_auto_checkpoint_ns;
+        if (elapsed < @as(i128, @intCast(policy.min_interval_ns))) return;
+
+        // Record the attempt either way. A checkpoint that fails repeatedly
+        // should not be retried on every single commit.
+        self.last_auto_checkpoint_ns = now;
+
+        var checkpointer = checkpoint_mod.Checkpointer.init(
+            self.allocator,
+            &self.buffer_pool,
+            &self.page_manager,
+            wal,
+        );
+        _ = checkpointer.checkpoint(policy.mode) catch {};
     }
 
     /// Flush all durable state and remove contiguous freelist pages from EOF.
@@ -1181,6 +1245,7 @@ pub const Database = struct {
                 self.stream_cond.broadcast();
                 self.stream_mutex.unlock();
             }
+            self.maybeAutoCheckpoint();
             return;
         }
         return DatabaseError.TransactionsNotEnabled;

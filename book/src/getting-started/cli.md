@@ -285,6 +285,32 @@ file is sitting next to it, `check` will tell you it exists but will not look in
 The write-ahead log is the file LatticeDB appends changes to before applying them, so
 that a crash cannot leave the database half-written.
 
+### Flushing pending writes
+
+Changes are written to a write-ahead log first, and folded into the database file
+later. `checkpoint` does that folding on demand and then resets the log:
+
+```bash
+lattice checkpoint social.lattice
+```
+
+```text
+Checkpointed database: social.lattice
+  Pages flushed:   0
+  Checkpoint LSN:  2
+  WAL truncated:   yes
+  Duration:        0 ms
+```
+
+You mostly do not need this. A database checkpoints itself as the log grows, and
+again when it closes. It is worth running by hand in two situations: before
+copying a database file, so the copy is complete on its own, and on a database
+that has been open a very long time under heavy writes, if you want to pick the
+moment the flush happens rather than let it land mid-request.
+
+This is not the same as `compact`. Checkpointing shrinks the log, not the
+database file.
+
 ### Reclaiming space
 
 Deleting a lot of data leaves free pages behind, and the file stays the same size
@@ -352,6 +378,7 @@ lattice exec social.lattice --query="MATCH (p:Person) RETURN p.name" --format=js
 | `create <path>` | Make a new database |
 | `info <path>` | Show file size, counts, and enabled features |
 | `compact <path>` | Give free pages at the end of the file back to the OS |
+| `checkpoint <path>` | Flush pending writes into the file and reset the log |
 | `check <path>` | Verify page checksums in the main file |
 | `query <path>` | Open an interactive Cypher shell |
 | `exec <path>` | Run one query and exit |

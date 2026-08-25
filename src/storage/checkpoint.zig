@@ -151,10 +151,12 @@ pub const Checkpointer = struct {
         // 8. Truncate WAL if requested
         var wal_truncated = false;
         if (mode == .truncate) {
-            self.truncateWal() catch {
-                // Truncation failure is not fatal - checkpoint still succeeded
-            };
-            wal_truncated = true;
+            // Every dirty page is durable by this point, so losing the truncation
+            // costs disk space rather than data. Report what actually happened
+            // instead of what was asked for.
+            if (self.truncateWal()) |_| {
+                wal_truncated = true;
+            } else |_| {}
         }
 
         const end_time = @import("compat").nanoTimestamp();
@@ -265,12 +267,26 @@ pub const Checkpointer = struct {
 
 /// Configuration for automatic checkpointing
 pub const AutoCheckpointConfig = struct {
-    /// Maximum WAL frames before triggering checkpoint
+    /// WAL frames written before a checkpoint is considered.
     max_wal_frames: u64 = 1000,
-    /// Minimum interval between checkpoints (nanoseconds)
-    min_interval_ns: u64 = 60 * std.time.ns_per_s, // 1 minute
-    /// Checkpoint mode to use
-    mode: CheckpointMode = .passive,
+    /// Shortest gap between two automatic checkpoints, in nanoseconds.
+    ///
+    /// Zero by default, because under `.truncate` the frame threshold already
+    /// limits the rate: a checkpoint resets `frame_count`, so the next one
+    /// cannot happen until another `max_wal_frames` have been written. Adding a
+    /// time gate on top of that does not prevent thrash, it just lets the WAL
+    /// grow without limit during a burst of writes, which is the thing this is
+    /// supposed to stop.
+    ///
+    /// It is worth setting for modes that leave the WAL in place, where the
+    /// frame count keeps climbing and nothing else would slow the loop down.
+    min_interval_ns: u64 = 0,
+    /// Checkpoint mode to use.
+    ///
+    /// Only `.truncate` resets the WAL, so it is the only mode that bounds the
+    /// file's growth. `.passive` and `.full` flush pages but leave every frame in
+    /// place, which is useful for durability and useless for size.
+    mode: CheckpointMode = .truncate,
 };
 
 // ============================================================================

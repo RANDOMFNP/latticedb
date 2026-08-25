@@ -161,6 +161,7 @@ fn runCommand(
         .create => try cmdCreate(allocator, stdout, stderr, parsed_args),
         .info => try cmdInfo(allocator, stdout, stderr, parsed_args),
         .compact => try cmdCompact(allocator, stdout, stderr, parsed_args),
+        .checkpoint => try cmdCheckpoint(allocator, stdout, stderr, parsed_args),
         .count => try cmdCount(allocator, stdout, stderr, parsed_args),
         .query => try cmdQuery(allocator, stdout, stderr, parsed_args),
         .exec => try cmdExec(allocator, stdout, stderr, parsed_args),
@@ -742,6 +743,48 @@ fn cmdCompact(
     }
 }
 
+fn cmdCheckpoint(
+    allocator: std.mem.Allocator,
+    stdout: anytype,
+    stderr: anytype,
+    parsed_args: *const Args,
+) !void {
+    const path = parsed_args.path.?;
+    const db = Database.open(allocator, path, .{}) catch |err| {
+        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    };
+    defer db.close();
+
+    const maybe_stats = db.checkpoint(.truncate) catch |err| {
+        return failCommand(stderr, "Failed to checkpoint database: {s}", .{@errorName(err)});
+    };
+
+    const stats = maybe_stats orelse {
+        return failCommand(stderr, "Database has no write-ahead log to checkpoint", .{});
+    };
+
+    switch (parsed_args.format) {
+        .table => {
+            output.printSuccess(stdout, "Checkpointed database: {s}", .{path});
+            try stdout.print("  Pages flushed:   {d}\n", .{stats.pages_flushed});
+            try stdout.print("  Checkpoint LSN:  {d}\n", .{stats.checkpoint_lsn});
+            try stdout.print("  WAL truncated:   {s}\n", .{if (stats.wal_truncated) "yes" else "no"});
+            try stdout.print("  Duration:        {d} ms\n", .{stats.duration_ns / std.time.ns_per_ms});
+        },
+        .json => try stdout.print(
+            "{{\"path\":\"{s}\",\"pages_flushed\":{d},\"checkpoint_lsn\":{d},\"wal_truncated\":{},\"duration_ns\":{d}}}\n",
+            .{ path, stats.pages_flushed, stats.checkpoint_lsn, stats.wal_truncated, stats.duration_ns },
+        ),
+        .csv => {
+            try stdout.writeAll("path,pages_flushed,checkpoint_lsn,wal_truncated,duration_ns\n");
+            try stdout.print(
+                "{s},{d},{d},{},{d}\n",
+                .{ path, stats.pages_flushed, stats.checkpoint_lsn, stats.wal_truncated, stats.duration_ns },
+            );
+        },
+    }
+}
+
 fn cmdCheck(
     allocator: std.mem.Allocator,
     stdout: anytype,
@@ -1066,6 +1109,7 @@ fn printUsage(writer: anytype) void {
         \\    create <path>       Create a new database
         \\    info <path>         Show database information
         \\    compact <path>      Reclaim free pages from physical EOF
+        \\    checkpoint <path>   Flush pending writes and reset the WAL
         \\    check <path>        Verify main database file checksums
         \\
         \\  Query:
@@ -1157,6 +1201,24 @@ fn printCommandHelp(writer: anytype, command: Command) void {
             \\
             \\Example:
             \\  lattice query mydb.lattice
+            \\
+        ) catch {},
+        .checkpoint => writer.writeAll(
+            \\Usage: lattice checkpoint <path> [options]
+            \\
+            \\Flush pending writes into the database file and reset the
+            \\write-ahead log. Use this to bound WAL growth on a database that
+            \\stays open for a long time, or to reach a clean point before
+            \\copying the file.
+            \\
+            \\Unlike compact, this does not move or reclaim pages. The database
+            \\file does not shrink; the WAL does.
+            \\
+            \\Options:
+            \\  --format=<fmt>        Output format: table, json, csv
+            \\
+            \\Example:
+            \\  lattice checkpoint mydb.lattice
             \\
         ) catch {},
         .compact => writer.writeAll(

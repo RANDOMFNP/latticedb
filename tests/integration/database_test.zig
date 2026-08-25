@@ -2903,3 +2903,104 @@ test "database: ORDER BY can reference a RETURN alias" {
         db.query("MATCH (p:P) RETURN p.n AS who ORDER BY nope"),
     );
 }
+
+test "database: automatic checkpointing bounds WAL growth" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_auto_checkpoint_regression.ltdb";
+    const wal_path = "/tmp/lattice_auto_checkpoint_regression.ltdb-wal";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+
+    // A small threshold keeps the test quick; the policy is the same at any size.
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+            .auto_checkpoint = .{ .max_wal_frames = 16, .min_interval_ns = 0, .mode = .truncate },
+        },
+    });
+    defer db.close();
+
+    // Without automatic checkpointing the frame count only ever climbs, because
+    // nothing resets the WAL until the database is closed.
+    var peak_frames: u64 = 0;
+    var i: usize = 0;
+    while (i < 400) : (i += 1) {
+        var txn = try db.beginTransaction(.read_write);
+        const node = try db.createNode(&txn, &[_][]const u8{"P"});
+        try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+        try db.commitTransaction(&txn);
+        if (db.wal) |*wal| {
+            peak_frames = @max(peak_frames, wal.header.frame_count);
+        }
+    }
+
+    // Guard against the assertion below passing because nothing was logged at all.
+    try std.testing.expect(peak_frames > 0);
+
+    // The threshold is checked after a commit, so the count can overshoot by the
+    // frames one transaction adds. It must not grow without limit.
+    try std.testing.expect(peak_frames < 200);
+
+    // Every write is still there.
+    var result = try db.query("MATCH (n:P) RETURN count(n)");
+    defer result.deinit();
+    switch (result.rows[0].values[0]) {
+        .int_val => |v| try std.testing.expectEqual(@as(i64, 400), v),
+        else => return error.UnexpectedValueType,
+    }
+}
+
+test "database: checkpoint reports what it did and can be disabled" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_manual_checkpoint_regression.ltdb";
+    const wal_path = "/tmp/lattice_manual_checkpoint_regression.ltdb-wal";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+            // Opting out has to be possible for anyone managing checkpoints
+            // themselves, such as a backup holding frames until they ship.
+            .auto_checkpoint = null,
+        },
+    });
+    defer db.close();
+
+    // Enough data to fill and flush frames: frame_count only counts frames that
+    // have been written out, so a handful of bare nodes all sit in the current
+    // in-memory frame and never reach the file.
+    var i: usize = 0;
+    while (i < 400) : (i += 1) {
+        var txn = try db.beginTransaction(.read_write);
+        const node = try db.createNode(&txn, &[_][]const u8{"P"});
+        try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+        try db.commitTransaction(&txn);
+    }
+
+    // With the policy disabled nothing has reset the WAL.
+    const frames_before = if (db.wal) |*wal| wal.header.frame_count else 0;
+    try std.testing.expect(frames_before > 0);
+
+    const stats = (try db.checkpoint(.truncate)) orelse return error.NoWal;
+    try std.testing.expect(stats.wal_truncated);
+    try std.testing.expectEqual(@as(u64, 0), if (db.wal) |*wal| wal.header.frame_count else 1);
+
+    // A full checkpoint flushes without disturbing frame numbering, which is what
+    // a reader following the WAL needs.
+    var extra = try db.beginTransaction(.read_write);
+    _ = try db.createNode(&extra, &[_][]const u8{"P"});
+    try db.commitTransaction(&extra);
+    const full = (try db.checkpoint(.full)) orelse return error.NoWal;
+    try std.testing.expect(!full.wal_truncated);
+}
