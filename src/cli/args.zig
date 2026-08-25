@@ -31,6 +31,7 @@ pub const Command = enum {
     compact,
     checkpoint,
     backup,
+    replicate,
     check,
 
     // Query
@@ -59,6 +60,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, s, "compact")) return .compact;
         if (std.mem.eql(u8, s, "checkpoint")) return .checkpoint;
         if (std.mem.eql(u8, s, "backup")) return .backup;
+        if (std.mem.eql(u8, s, "replicate")) return .replicate;
         if (std.mem.eql(u8, s, "check")) return .check;
         if (std.mem.eql(u8, s, "query")) return .query;
         if (std.mem.eql(u8, s, "exec")) return .exec;
@@ -89,6 +91,7 @@ pub const Command = enum {
             .compact => "Reclaim free pages from the end of a database file",
             .checkpoint => "Flush pending writes and reset the write-ahead log",
             .backup => "Copy a database to another file without closing it",
+            .replicate => "Ship changes to a directory, once or continuously",
             .check => "Verify main database file checksums",
             .query => "Interactive Cypher REPL",
             .exec => "Execute a single query",
@@ -127,6 +130,11 @@ pub const Args = struct {
 
     // Filter options
     label_filter: ?[]const u8 = null,
+
+    // Replication options
+    to: ?[]const u8 = null,
+    follow: bool = false,
+    interval_secs: u32 = 10,
 
     // Remaining positional args
     positional: []const []const u8 = &.{},
@@ -186,6 +194,16 @@ pub const Args = struct {
                     args.on_error_skip = true;
                 } else if (std.mem.startsWith(u8, arg, "--labels=")) {
                     args.label_filter = arg["--labels=".len..];
+                } else if (std.mem.startsWith(u8, arg, "--to=")) {
+                    args.to = arg["--to=".len..];
+                } else if (std.mem.eql(u8, arg, "--follow")) {
+                    args.follow = true;
+                } else if (std.mem.startsWith(u8, arg, "--interval=")) {
+                    const value = arg["--interval=".len..];
+                    args.interval_secs = std.fmt.parseInt(u32, value, 10) catch {
+                        return error.InvalidInterval;
+                    };
+                    if (args.interval_secs == 0) return error.InvalidInterval;
                 } else if (std.mem.startsWith(u8, arg, "--file=")) {
                     args.file = arg["--file=".len..];
                 } else if (std.mem.startsWith(u8, arg, "--query=")) {
@@ -235,6 +253,7 @@ pub const Args = struct {
 
 pub const Error = error{
     InvalidFormat,
+    InvalidInterval,
     InvalidVectorDims,
     InvalidCacheSize,
     InvalidPageSize,

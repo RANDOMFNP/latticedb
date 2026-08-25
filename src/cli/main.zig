@@ -163,6 +163,7 @@ fn runCommand(
         .compact => try cmdCompact(allocator, stdout, stderr, parsed_args),
         .checkpoint => try cmdCheckpoint(allocator, stdout, stderr, parsed_args),
         .backup => try cmdBackup(allocator, stdout, stderr, parsed_args),
+        .replicate => try cmdReplicate(allocator, stdout, stderr, parsed_args),
         .count => try cmdCount(allocator, stdout, stderr, parsed_args),
         .query => try cmdQuery(allocator, stdout, stderr, parsed_args),
         .exec => try cmdExec(allocator, stdout, stderr, parsed_args),
@@ -786,6 +787,115 @@ fn cmdBackup(
     }
 }
 
+/// Print what one replication pass did, in whichever format was asked for.
+fn reportReplicationPass(
+    stdout: anytype,
+    format: args_mod.OutputFormat,
+    path: []const u8,
+    dest: []const u8,
+    stats: lattice.storage.replicate.ReplicateStats,
+) !void {
+    switch (format) {
+        .table => {
+            if (stats.started_generation) {
+                output.printSuccess(
+                    stdout,
+                    "Started generation {d} for {s} in {s}",
+                    .{ stats.generation, path, dest },
+                );
+                try stdout.print("  Snapshot bytes:  {d}\n", .{stats.snapshot_bytes});
+            } else if (stats.frames_shipped == 0) {
+                output.printSuccess(
+                    stdout,
+                    "Nothing new to ship for {s}",
+                    .{path},
+                );
+            } else {
+                output.printSuccess(
+                    stdout,
+                    "Shipped {s} to {s}",
+                    .{ path, dest },
+                );
+            }
+            try stdout.print("  Generation:      {d}\n", .{stats.generation});
+            try stdout.print("  Frames shipped:  {d}\n", .{stats.frames_shipped});
+            try stdout.print("  Bytes shipped:   {d}\n", .{stats.bytes_shipped});
+            try stdout.print("  Duration:        {d} ms\n", .{stats.duration_ns / std.time.ns_per_ms});
+        },
+        .json => try stdout.print(
+            "{{\"path\":\"{s}\",\"destination\":\"{s}\",\"generation\":{d},\"started_generation\":{}," ++
+                "\"frames_shipped\":{d},\"bytes_shipped\":{d},\"snapshot_bytes\":{d},\"duration_ns\":{d}}}\n",
+            .{
+                path,          dest,
+                stats.generation, stats.started_generation,
+                stats.frames_shipped, stats.bytes_shipped,
+                stats.snapshot_bytes, stats.duration_ns,
+            },
+        ),
+        .csv => try stdout.print(
+            "{s},{s},{d},{},{d},{d},{d},{d}\n",
+            .{
+                path,          dest,
+                stats.generation, stats.started_generation,
+                stats.frames_shipped, stats.bytes_shipped,
+                stats.snapshot_bytes, stats.duration_ns,
+            },
+        ),
+    }
+}
+
+fn cmdReplicate(
+    allocator: std.mem.Allocator,
+    stdout: anytype,
+    stderr: anytype,
+    parsed_args: *const Args,
+) !void {
+    const path = parsed_args.path.?;
+    const dest = parsed_args.to orelse {
+        return failCommand(stderr, "No destination provided. Use --to=<directory>", .{});
+    };
+
+    const db = Database.open(allocator, path, .{}) catch |err| {
+        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    };
+    defer db.close();
+
+    // The CSV header belongs above the rows rather than repeated per pass.
+    if (parsed_args.format == .csv) {
+        try stdout.writeAll(
+            "path,destination,generation,started_generation,frames_shipped,bytes_shipped,snapshot_bytes,duration_ns\n",
+        );
+    }
+
+    const interval_ns = @as(u64, parsed_args.interval_secs) * std.time.ns_per_s;
+
+    while (true) {
+        const stats = db.replicateTo(dest) catch |err| switch (err) {
+            error.UuidMismatch => return failCommand(
+                stderr,
+                "{s} already holds backups of a different database",
+                .{dest},
+            ),
+            error.NoWal => return failCommand(
+                stderr,
+                "Database has no write-ahead log, so there is nothing to follow",
+                .{},
+            ),
+            error.UnsupportedManifest => return failCommand(
+                stderr,
+                "{s} holds a manifest this version does not understand",
+                .{dest},
+            ),
+            else => return failCommand(stderr, "Failed to replicate: {s}", .{@errorName(err)}),
+        };
+
+        try reportReplicationPass(stdout, parsed_args.format, path, dest, stats);
+
+        if (!parsed_args.follow) break;
+        @import("compat").sleep(interval_ns);
+    }
+}
+
 fn cmdCheckpoint(
     allocator: std.mem.Allocator,
     stdout: anytype,
@@ -1154,6 +1264,7 @@ fn printUsage(writer: anytype) void {
         \\    compact <path>      Reclaim free pages from physical EOF
         \\    checkpoint <path>   Flush pending writes and reset the WAL
         \\    backup <path>       Copy to another file, database stays open
+        \\    replicate <path>    Ship changes to a directory, once or continuously
         \\    check <path>        Verify main database file checksums
         \\
         \\  Query:
@@ -1267,6 +1378,40 @@ fn printCommandHelp(writer: anytype, command: Command) void {
             \\
             \\Example:
             \\  lattice backup mydb.lattice --file=/backups/mydb-$(date +%F).lattice
+            \\
+        ) catch {},
+        .replicate => writer.writeAll(
+            \\Usage: lattice replicate <path> --to=<directory> [options]
+            \\
+            \\Ship a database's changes into a directory, so a disk failure costs
+            \\you the last few seconds rather than everything since your last
+            \\manual copy.
+            \\
+            \\The first pass writes a full snapshot. Every pass after that copies
+            \\only the write-ahead log frames that have appeared since, which is
+            \\why running it often is cheap. A pass with nothing to ship is normal
+            \\and is not an error.
+            \\
+            \\Whenever the write-ahead log is reset, frame numbering restarts and
+            \\a new generation begins with a fresh snapshot. Older generations are
+            \\left in place, because restoring to a point inside one still needs
+            \\its frames.
+            \\
+            \\This command opens the database, and LatticeDB does not lock a
+            \\database across processes. Do not run it against a database another
+            \\process currently has open. To replicate a database while your
+            \\application is using it, call replicateTo on your own handle instead
+            \\and let this command cover the case where nothing else is running.
+            \\
+            \\Options:
+            \\  --to=<directory>      Where to ship to, created if missing
+            \\  --follow              Keep running, shipping on an interval
+            \\  --interval=<seconds>  How long to wait between passes (default 10)
+            \\  --format=<fmt>        Output format: table, json, csv
+            \\
+            \\Examples:
+            \\  lattice replicate mydb.lattice --to=/mnt/backup/mydb
+            \\  lattice replicate mydb.lattice --to=/mnt/backup/mydb --follow --interval=30
             \\
         ) catch {},
         .checkpoint => writer.writeAll(
