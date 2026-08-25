@@ -13,7 +13,7 @@ LatticeDB is an embedded, single-file graph database that lets local application
 - **Fast.** 0.13 μs node lookups. 0.83 ms vector search at 1M vectors with 100% recall.
 
 ```cypher
--- Find chunks similar to a query, traverse to their document, then to the author
+// Find chunks similar to a query, traverse to their document, then to the author
 MATCH (chunk:Chunk)-[:PART_OF]->(doc:Document)-[:AUTHORED_BY]->(author:Person)
 WHERE chunk.embedding <=> $query_vector < 0.3
   AND doc.content @@ "neural networks"
@@ -62,6 +62,12 @@ Recent binding-surface cleanups moved embedding helpers into dedicated modules a
 ## Example
 
 A complete example: create a small knowledge graph with documents and authors, store embeddings, index text, then query across all three search modes.
+
+The examples use the built-in `hash_embed` / `hashEmbed` / `HashEmbed` helper so they run with no
+external service. It is a deterministic placeholder, not a semantic embedding: similar text does not
+produce nearby vectors, so a distance threshold is arbitrary and a similarity query may match nothing.
+Use a real embedding model for anything where the results should mean something — see
+[Working with Embeddings](https://docs.latticedb.org/guides/embeddings).
 
 ### Python
 
@@ -195,7 +201,11 @@ err = db.Update(func(tx *latticedb.Tx) error {
     if err != nil {
         return err
     }
-    if err := tx.SetVector(node.ID, "embedding", []float32{1, 0, 0, 0}); err != nil {
+    embedding, err := latticedb.HashEmbed("The transformer architecture uses self-attention...", 128)
+    if err != nil {
+        return err
+    }
+    if err := tx.SetVector(node.ID, "embedding", embedding); err != nil {
         return err
     }
     return tx.FTSIndex(node.ID, "The transformer architecture uses self-attention...")
@@ -280,8 +290,10 @@ LatticeDB at 1M achieves 0.83 ms mean with 100% recall@10 — faster than FAISS 
 |--------|-------------------|------|--------|
 | **LatticeDB** | **39 μs** | Embedded | `zig build sqlite-benchmark` |
 | SQLite (recursive CTE) | 548 μs | Embedded | `zig build sqlite-benchmark` |
-| Kuzu | 19 ms | Embedded | [The Data Quarry](https://thedataquarry.com/blog/embedded-db-2/) |
+| Kuzu *(archived Oct 2025)* | 19 ms | Embedded | [The Data Quarry](https://thedataquarry.com/blog/embedded-db-2/) |
 | Neo4j | 10 ms (1M nodes) | Server | [Neo4j blog](https://neo4j.com/news/how-much-faster-is-a-graph-database-really/) |
+
+Only the SQLite rows are measured head to head on the same machine in the same harness. The Kuzu and Neo4j figures come from third-party posts on hardware and with methodology we do not control, so treat them as order-of-magnitude orientation rather than a benchmark result.
 
 **LatticeDB vs SQLite** — Social network graph with power-law degree distribution, adjacency cache pre-warmed:
 
@@ -399,12 +411,20 @@ zig build -Doptimize=ReleaseFast   # optimized build
 
 ## Documentation
 
+The full documentation lives at **[docs.latticedb.org](https://docs.latticedb.org)** — the Cypher
+reference, the C, Python, TypeScript, and Go API references, guides, and the storage engine
+internals. [latticedb.org](https://latticedb.org) is the project site.
+
+The links below are the in-repo copies and design notes.
+
 - [Getting Started](docs/getting_started.md)
 - [Durable Streams and Graph Changefeeds](docs/14_durable_streams.md)
 - [Property Indexes](docs/property_index_design.md)
 - [Examples Overview](examples/README.md)
 - [CLI Quickstart](examples/cli/README.md)
 - [Architecture Overview](docs/00_introduction.md)
+- [0.11.1 Release Notes](docs/release_notes_0.11.1.md)
+- [0.11.0 Release Notes](docs/release_notes_0.11.0.md)
 - [0.10.0 Release Notes](docs/release_notes_0.10.0.md)
 - [0.9.6 Release Notes](docs/release_notes_0.9.6.md)
 - [0.9.5 Release Notes](docs/release_notes_0.9.5.md)
