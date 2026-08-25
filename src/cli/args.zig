@@ -30,6 +30,7 @@ pub const Command = enum {
     info,
     compact,
     checkpoint,
+    backup,
     check,
 
     // Query
@@ -57,6 +58,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, s, "info")) return .info;
         if (std.mem.eql(u8, s, "compact")) return .compact;
         if (std.mem.eql(u8, s, "checkpoint")) return .checkpoint;
+        if (std.mem.eql(u8, s, "backup")) return .backup;
         if (std.mem.eql(u8, s, "check")) return .check;
         if (std.mem.eql(u8, s, "query")) return .query;
         if (std.mem.eql(u8, s, "exec")) return .exec;
@@ -86,6 +88,7 @@ pub const Command = enum {
             .info => "Show database information",
             .compact => "Reclaim free pages from the end of a database file",
             .checkpoint => "Flush pending writes and reset the write-ahead log",
+            .backup => "Copy a database to another file without closing it",
             .check => "Verify main database file checksums",
             .query => "Interactive Cypher REPL",
             .exec => "Execute a single query",

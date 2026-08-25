@@ -257,6 +257,13 @@ pub const fs = struct {
             return self.dir.deleteFile(path);
         }
 
+        pub fn rename(self: Cwd, old_path: []const u8, new_path: []const u8) !void {
+            if (has_io_fs) {
+                return self.dir.rename(old_path, self.dir, new_path, io);
+            }
+            return self.dir.rename(old_path, new_path);
+        }
+
         pub fn access(self: Cwd, path: []const u8, options: AccessOptions) !void {
             if (has_io_fs) {
                 return self.dir.access(io, path, options);

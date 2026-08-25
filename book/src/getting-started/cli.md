@@ -285,6 +285,42 @@ file is sitting next to it, `check` will tell you it exists but will not look in
 The write-ahead log is the file LatticeDB appends changes to before applying them, so
 that a crash cannot leave the database half-written.
 
+### Backing up
+
+`backup` copies a database to another file without closing it:
+
+```bash
+lattice backup social.lattice --file=/backups/social-2026-08-25.lattice
+```
+
+```text
+Backed up social.lattice to /backups/social-2026-08-25.lattice
+  Bytes copied:    65536
+  Pages:           16
+  Pages flushed:   0
+  Duration:        1 ms
+```
+
+Pending writes are folded into the file before the copy starts, so what you get
+is a complete database on its own — you can open it directly, and it needs no
+write-ahead log beside it.
+
+The copy is written next to the destination and renamed into place only once it
+is finished. An interrupted backup leaves nothing that looks usable, rather than
+a truncated file you discover is bad when you need it.
+
+Two things to know. The backup captures the database as of the moment it starts,
+so writes that land during it are not included. And it will refuse to run while
+a transaction is open, because a copy taken while writes land underneath it is
+torn in ways no later check would catch.
+
+**Do not back up by copying the file yourself while the database is open.** The
+write-ahead log holds committed data that is not in the main file yet, so
+copying just the main file gives you a database that opens and then fails on
+query, and copying both files catches them at different instants and fails on
+open. Neither announces itself at copy time — you find out at restore. Use
+`backup`, or stop the process first.
+
 ### Flushing pending writes
 
 Changes are written to a write-ahead log first, and folded into the database file
@@ -379,6 +415,7 @@ lattice exec social.lattice --query="MATCH (p:Person) RETURN p.name" --format=js
 | `info <path>` | Show file size, counts, and enabled features |
 | `compact <path>` | Give free pages at the end of the file back to the OS |
 | `checkpoint <path>` | Flush pending writes into the file and reset the log |
+| `backup <path>` | Copy to another file while the database stays open |
 | `check <path>` | Verify page checksums in the main file |
 | `query <path>` | Open an interactive Cypher shell |
 | `exec <path>` | Run one query and exit |

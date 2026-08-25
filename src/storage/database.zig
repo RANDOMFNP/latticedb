@@ -60,6 +60,18 @@ pub const EdgeRef = edge_mod.EdgeRef;
 pub const EdgeRefIterator = edge_mod.EdgeStore.EdgeRefIterator;
 pub const CompactStats = page_manager.TruncateStats;
 
+/// What a backup did.
+pub const BackupStats = struct {
+    /// Bytes written to the destination.
+    bytes_copied: u64,
+    /// Pages in the database at the moment it was captured.
+    pages_copied: u32,
+    /// Dirty pages flushed to make the source consistent first.
+    pages_flushed: u32,
+    /// Wall-clock time for the whole operation.
+    duration_ns: u64,
+};
+
 const label_index_mod = lattice.graph.label_index;
 const LabelIndex = label_index_mod.LabelIndex;
 
@@ -1100,6 +1112,91 @@ pub const Database = struct {
     ///
     /// Compaction is an exclusive maintenance operation. It never relocates a
     /// live page, so stable IDs and persisted page references remain unchanged.
+    /// Copy this database to `dest_path` without closing it.
+    ///
+    /// The copy is a complete database on its own: a full checkpoint first
+    /// flushes every dirty page into the main file, so the write-ahead log is
+    /// redundant by the time the bytes are read and the destination needs no log
+    /// beside it.
+    ///
+    /// Exclusive for its duration, like compact. A file copy taken while writes
+    /// land underneath it is torn in ways no checksum on the source would catch,
+    /// so an open transaction is refused rather than worked around. The
+    /// checkpoint uses `.full` rather than `.truncate` so frame numbering is left
+    /// alone for anything following the log.
+    ///
+    /// The destination is written beside the target and renamed into place, so an
+    /// interrupted backup never leaves a partial file that looks usable.
+    pub fn backup(self: *Self, dest_path: []const u8) DatabaseError!BackupStats {
+        if (self.txn_overlays.count() != 0) return DatabaseError.TransactionConflict;
+
+        const start_ns = @import("compat").nanoTimestamp();
+
+        var pages_flushed: u32 = 0;
+        if (!self.read_only) {
+            try self.persistHnswIndex();
+            self.saveTreeRoots() catch return DatabaseError.IoError;
+            if (try self.checkpoint(.full)) |stats| {
+                pages_flushed = stats.pages_flushed;
+            }
+        }
+
+        const temp_path = std.fmt.allocPrint(self.allocator, "{s}.partial", .{dest_path}) catch {
+            return DatabaseError.OutOfMemory;
+        };
+        defer self.allocator.free(temp_path);
+
+        const vfs_handle = self.vfs.vfs();
+
+        var source = vfs_handle.open(self.path, .{ .read = true }) catch return DatabaseError.IoError;
+        defer source.close();
+
+        const total_bytes = source.size() catch return DatabaseError.IoError;
+
+        var dest = vfs_handle.open(temp_path, .{
+            .read = true,
+            .write = true,
+            .create = true,
+            .truncate = true,
+        }) catch return DatabaseError.IoError;
+
+        var copied: u64 = 0;
+        {
+            errdefer {
+                dest.close();
+                vfs_handle.delete(temp_path) catch {};
+            }
+
+            const buffer = self.allocator.alloc(u8, 1024 * 1024) catch return DatabaseError.OutOfMemory;
+            defer self.allocator.free(buffer);
+
+            while (copied < total_bytes) {
+                const want = @min(buffer.len, total_bytes - copied);
+                const read = source.read(copied, buffer[0..want]) catch return DatabaseError.IoError;
+                if (read == 0) break;
+                dest.write(copied, buffer[0..read]) catch return DatabaseError.IoError;
+                copied += read;
+            }
+
+            dest.sync() catch return DatabaseError.IoError;
+        }
+        dest.close();
+
+        // Only now does a file appear at the path the caller asked for.
+        @import("compat").fs.cwd().rename(temp_path, dest_path) catch {
+            vfs_handle.delete(temp_path) catch {};
+            return DatabaseError.IoError;
+        };
+
+        const end_ns = @import("compat").nanoTimestamp();
+        return BackupStats{
+            .bytes_copied = copied,
+            .pages_copied = self.page_manager.pageCount(),
+            .pages_flushed = pages_flushed,
+            .duration_ns = @intCast(end_ns - start_ns),
+        };
+    }
+
     pub fn compact(self: *Self) DatabaseError!CompactStats {
         if (self.read_only) return DatabaseError.ReadOnly;
         if (self.txn_overlays.count() != 0) return DatabaseError.TransactionConflict;

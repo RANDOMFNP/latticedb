@@ -162,6 +162,7 @@ fn runCommand(
         .info => try cmdInfo(allocator, stdout, stderr, parsed_args),
         .compact => try cmdCompact(allocator, stdout, stderr, parsed_args),
         .checkpoint => try cmdCheckpoint(allocator, stdout, stderr, parsed_args),
+        .backup => try cmdBackup(allocator, stdout, stderr, parsed_args),
         .count => try cmdCount(allocator, stdout, stderr, parsed_args),
         .query => try cmdQuery(allocator, stdout, stderr, parsed_args),
         .exec => try cmdExec(allocator, stdout, stderr, parsed_args),
@@ -743,6 +744,48 @@ fn cmdCompact(
     }
 }
 
+fn cmdBackup(
+    allocator: std.mem.Allocator,
+    stdout: anytype,
+    stderr: anytype,
+    parsed_args: *const Args,
+) !void {
+    const path = parsed_args.path.?;
+    const dest = parsed_args.file orelse {
+        return failCommand(stderr, "No destination provided. Use --file=<path>", .{});
+    };
+
+    const db = Database.open(allocator, path, .{}) catch |err| {
+        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    };
+    defer db.close();
+
+    const stats = db.backup(dest) catch |err| {
+        return failCommand(stderr, "Failed to back up database: {s}", .{@errorName(err)});
+    };
+
+    switch (parsed_args.format) {
+        .table => {
+            output.printSuccess(stdout, "Backed up {s} to {s}", .{ path, dest });
+            try stdout.print("  Bytes copied:    {d}\n", .{stats.bytes_copied});
+            try stdout.print("  Pages:           {d}\n", .{stats.pages_copied});
+            try stdout.print("  Pages flushed:   {d}\n", .{stats.pages_flushed});
+            try stdout.print("  Duration:        {d} ms\n", .{stats.duration_ns / std.time.ns_per_ms});
+        },
+        .json => try stdout.print(
+            "{{\"path\":\"{s}\",\"destination\":\"{s}\",\"bytes_copied\":{d},\"pages\":{d},\"pages_flushed\":{d},\"duration_ns\":{d}}}\n",
+            .{ path, dest, stats.bytes_copied, stats.pages_copied, stats.pages_flushed, stats.duration_ns },
+        ),
+        .csv => {
+            try stdout.writeAll("path,destination,bytes_copied,pages,pages_flushed,duration_ns\n");
+            try stdout.print(
+                "{s},{s},{d},{d},{d},{d}\n",
+                .{ path, dest, stats.bytes_copied, stats.pages_copied, stats.pages_flushed, stats.duration_ns },
+            );
+        },
+    }
+}
+
 fn cmdCheckpoint(
     allocator: std.mem.Allocator,
     stdout: anytype,
@@ -1110,6 +1153,7 @@ fn printUsage(writer: anytype) void {
         \\    info <path>         Show database information
         \\    compact <path>      Reclaim free pages from physical EOF
         \\    checkpoint <path>   Flush pending writes and reset the WAL
+        \\    backup <path>       Copy to another file, database stays open
         \\    check <path>        Verify main database file checksums
         \\
         \\  Query:
@@ -1201,6 +1245,28 @@ fn printCommandHelp(writer: anytype, command: Command) void {
             \\
             \\Example:
             \\  lattice query mydb.lattice
+            \\
+        ) catch {},
+        .backup => writer.writeAll(
+            \\Usage: lattice backup <path> --file=<destination>
+            \\
+            \\Copy a database to another file. The source stays open and usable
+            \\afterwards; you do not have to stop anything first.
+            \\
+            \\Pending writes are flushed into the file before the copy starts, so
+            \\the destination is a complete database on its own and needs no
+            \\write-ahead log beside it.
+            \\
+            \\The copy is written next to the destination and renamed into place
+            \\once it is complete, so an interrupted backup does not leave a
+            \\partial file that looks usable.
+            \\
+            \\Options:
+            \\  --file=<path>         Where to write the copy
+            \\  --format=<fmt>        Output format: table, json, csv
+            \\
+            \\Example:
+            \\  lattice backup mydb.lattice --file=/backups/mydb-$(date +%F).lattice
             \\
         ) catch {},
         .checkpoint => writer.writeAll(

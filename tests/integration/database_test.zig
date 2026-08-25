@@ -3004,3 +3004,89 @@ test "database: checkpoint reports what it did and can be disabled" {
     const full = (try db.checkpoint(.full)) orelse return error.NoWal;
     try std.testing.expect(!full.wal_truncated);
 }
+
+test "database: backup copies a live database into a standalone file" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_backup_source.ltdb";
+    const wal_path = "/tmp/lattice_backup_source.ltdb-wal";
+    const dest = "/tmp/lattice_backup_copy.ltdb";
+    const dest_wal = "/tmp/lattice_backup_copy.ltdb-wal";
+
+    for ([_][]const u8{ path, wal_path, dest, dest_wal }) |p| {
+        @import("compat").fs.cwd().deleteFile(p) catch {};
+    }
+    defer for ([_][]const u8{ path, wal_path, dest, dest_wal }) |p| {
+        @import("compat").fs.cwd().deleteFile(p) catch {};
+    };
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+
+    var i: usize = 0;
+    while (i < 200) : (i += 1) {
+        var txn = try db.beginTransaction(.read_write);
+        const node = try db.createNode(&txn, &[_][]const u8{"P"});
+        try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+        try db.commitTransaction(&txn);
+    }
+
+    // Taken without closing the source.
+    const stats = try db.backup(dest);
+    try std.testing.expect(stats.bytes_copied > 0);
+    try std.testing.expect(stats.pages_copied > 0);
+
+    // The source keeps working afterwards.
+    {
+        var txn = try db.beginTransaction(.read_write);
+        _ = try db.createNode(&txn, &[_][]const u8{"P"});
+        try db.commitTransaction(&txn);
+    }
+    db.close();
+
+    // The copy stands on its own. Everything committed before the backup is
+    // there, and the write that came after it is not.
+    var restored = try Database.open(allocator, dest, .{
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer restored.close();
+
+    var result = try restored.query("MATCH (n:P) RETURN count(n)");
+    defer result.deinit();
+    switch (result.rows[0].values[0]) {
+        .int_val => |v| try std.testing.expectEqual(@as(i64, 200), v),
+        else => return error.UnexpectedValueType,
+    }
+}
+
+test "database: backup refuses to run while a transaction is open" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_backup_conflict.ltdb";
+    const wal_path = "/tmp/lattice_backup_conflict.ltdb-wal";
+    const dest = "/tmp/lattice_backup_conflict_copy.ltdb";
+
+    for ([_][]const u8{ path, wal_path, dest }) |p| {
+        @import("compat").fs.cwd().deleteFile(p) catch {};
+    }
+    defer for ([_][]const u8{ path, wal_path, dest }) |p| {
+        @import("compat").fs.cwd().deleteFile(p) catch {};
+    };
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    // A copy taken while writes are landing underneath it is torn in ways no
+    // checksum on the source would catch, so this is refused rather than
+    // worked around.
+    var txn = try db.beginTransaction(.read_write);
+    _ = try db.createNode(&txn, &[_][]const u8{"P"});
+    try std.testing.expectError(DatabaseError.TransactionConflict, db.backup(dest));
+    try db.commitTransaction(&txn);
+
+    // With nothing in flight it goes through.
+    _ = try db.backup(dest);
+}
