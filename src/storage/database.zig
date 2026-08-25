@@ -7030,10 +7030,37 @@ pub const Database = struct {
             return self.makePlanFailure(err);
         };
 
+        // A query that changes data and was not given a transaction gets one of
+        // its own, committed when it succeeds and abandoned when it does not.
+        //
+        // Without this the mutation runs straight against the pages, which
+        // leaves no write-ahead log record behind. That costs crash atomicity,
+        // and it makes the write invisible to anything following the log, which
+        // is how backup and replication see changes at all. Almost every write
+        // arrives this way, because a bare query is what the command line and
+        // every client library send.
+        var auto_txn: ?Transaction = null;
+        var auto_txn_committed = false;
+        if (txn == null and ast_query.writesData() and !self.read_only) {
+            auto_txn = self.beginTransaction(.read_write) catch |err| switch (err) {
+                // A database built without transactions still has the old
+                // behaviour available, and refusing the query outright would be
+                // worse than running it the way it has always run.
+                DatabaseError.TransactionsNotEnabled => null,
+                DatabaseError.OutOfMemory => return QueryError.OutOfMemory,
+                else => return QueryError.ExecutionError,
+            };
+        }
+        defer {
+            if (auto_txn) |*t| {
+                if (!auto_txn_committed) self.abortTransaction(t) catch {};
+            }
+        }
+
         // Execute
         var exec_ctx = ExecutionContext.initWithStorage(self.allocator, &self.node_store, &self.symbol_table);
         exec_ctx.database = self;
-        exec_ctx.txn = txn;
+        exec_ctx.txn = if (auto_txn) |*t| t else txn;
         defer exec_ctx.deinit();
 
         var binding_iter = planner.bindings.iterator();
@@ -7057,7 +7084,15 @@ pub const Database = struct {
             return self.makeExecutionFailure(err);
         };
 
+        // Built before the commit, because the rows are read back through the
+        // transaction's own view of the data.
         const converted = try self.convertResult(&exec_result, &planner);
+
+        if (auto_txn) |*t| {
+            self.commitTransaction(t) catch return QueryError.ExecutionError;
+            auto_txn_committed = true;
+        }
+
         return .{ .success = converted };
     }
 

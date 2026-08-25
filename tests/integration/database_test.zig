@@ -3524,3 +3524,87 @@ test "database: replication refuses a destination holding another database" {
         db_b.replicateTo(dest),
     );
 }
+
+/// How many frames the log holds right now, read the way a follower reads it.
+fn walFrameCount(wal_path: []const u8) !u64 {
+    const allocator = std.testing.allocator;
+    var posix = lattice.storage.vfs.PosixVfs.init(allocator);
+    const vfs = posix.vfs();
+    var reader = try lattice.storage.wal_reader.WalReader.open(allocator, vfs, wal_path, null);
+    defer reader.close();
+    return reader.frame_count;
+}
+
+test "database: a writing query with no transaction still reaches the WAL" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_implicit_txn.ltdb";
+    const wal_path = "/tmp/lattice_implicit_txn.ltdb-wal";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+            .auto_checkpoint = null,
+        },
+    });
+    defer db.close();
+
+    const before = try walFrameCount(wal_path);
+
+    // A bare query is what the command line sends and what every client library
+    // sends for db.query, so it is how almost every write actually arrives. It
+    // used to run straight against the pages, which left nothing in the log:
+    // no crash atomicity, and nothing for a backup or a replica to see.
+    var i: usize = 0;
+    while (i < 50) : (i += 1) {
+        var result = try db.query("CREATE (p:Person {name: 'implicit'})");
+        result.deinit();
+    }
+
+    const after = try walFrameCount(wal_path);
+    try std.testing.expect(after > before);
+
+    // The writes are real, not merely logged.
+    var counted = try db.query("MATCH (p:Person) RETURN count(p) AS c");
+    defer counted.deinit();
+    try std.testing.expectEqual(@as(usize, 1), counted.rowCount());
+}
+
+test "database: a writing query given a transaction does not open its own" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_explicit_txn.ltdb";
+    const wal_path = "/tmp/lattice_explicit_txn.ltdb-wal";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+            .auto_checkpoint = null,
+        },
+    });
+    defer db.close();
+
+    // A caller who opened a transaction is saying where the boundary goes, so a
+    // query inside it must not commit on its own. Rolling back has to take the
+    // write with it.
+    var txn = try db.beginTransaction(.read_write);
+    var created = try db.queryInTxn(&txn, "CREATE (p:Person {name: 'rolled back'})");
+    created.deinit();
+    try db.abortTransaction(&txn);
+
+    var counted = try db.query("MATCH (p:Person) RETURN p.name AS name");
+    defer counted.deinit();
+    try std.testing.expectEqual(@as(usize, 0), counted.rowCount());
+}
