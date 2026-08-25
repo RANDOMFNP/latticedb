@@ -73,6 +73,8 @@ pub fn main(init: std.process.Init) !u8 {
             error.InvalidCacheSize => output.printError(stderr, "Invalid cache size. Must be a positive integer.", .{}),
             error.InvalidPageSize => output.printError(stderr, "Invalid page size. Must be in the range 4096..65535 bytes.", .{}),
             error.InvalidBatchSize => output.printError(stderr, "Invalid batch size. Must be a positive integer.", .{}),
+            error.InvalidInterval => output.printError(stderr, "Invalid interval. Must be a whole number of seconds, at least 1.", .{}),
+            error.InvalidTimestamp => output.printError(stderr, "Invalid time. Use a UTC time such as 2026-08-25T14:30:00Z or a date such as 2026-08-25.", .{}),
             else => output.printError(stderr, "Failed to parse arguments", .{}),
         }
         stderr.flush() catch {};
@@ -164,6 +166,7 @@ fn runCommand(
         .checkpoint => try cmdCheckpoint(allocator, stdout, stderr, parsed_args),
         .backup => try cmdBackup(allocator, stdout, stderr, parsed_args),
         .replicate => try cmdReplicate(allocator, stdout, stderr, parsed_args),
+        .restore => try cmdRestore(allocator, stdout, stderr, parsed_args),
         .count => try cmdCount(allocator, stdout, stderr, parsed_args),
         .query => try cmdQuery(allocator, stdout, stderr, parsed_args),
         .exec => try cmdExec(allocator, stdout, stderr, parsed_args),
@@ -896,6 +899,98 @@ fn cmdReplicate(
     }
 }
 
+fn cmdRestore(
+    allocator: std.mem.Allocator,
+    stdout: anytype,
+    stderr: anytype,
+    parsed_args: *const Args,
+) !void {
+    const source = parsed_args.path.?;
+    const output_path = parsed_args.output orelse {
+        return failCommand(stderr, "No output path provided. Use --output=<path>", .{});
+    };
+
+    const stats = lattice.storage.restore.restore(allocator, source, output_path, .{
+        .at_ms = parsed_args.at_ms,
+        .overwrite = parsed_args.force,
+    }) catch |err| switch (err) {
+        error.NoBackup => return failCommand(
+            stderr,
+            "{s} does not hold a backup, so there is nothing to restore",
+            .{source},
+        ),
+        error.OutputExists => return failCommand(
+            stderr,
+            "{s} already exists. Pass --force to overwrite it",
+            .{output_path},
+        ),
+        error.NothingAtThatTime => return failCommand(
+            stderr,
+            "No backup had been taken yet at that moment",
+            .{},
+        ),
+        error.MissingData => return failCommand(
+            stderr,
+            "A snapshot or segment the backup names is missing or unreadable",
+            .{},
+        ),
+        error.UnsupportedManifest => return failCommand(
+            stderr,
+            "{s} holds a backup this version does not understand",
+            .{source},
+        ),
+        else => return failCommand(stderr, "Failed to restore: {s}", .{@errorName(err)}),
+    };
+
+    switch (parsed_args.format) {
+        .table => {
+            output.printSuccess(stdout, "Restored {s} to {s}", .{ source, output_path });
+            try stdout.print("  Generation:      {d}\n", .{stats.generation});
+            try stdout.print("  Segments:        {d}\n", .{stats.segments_applied});
+            try stdout.print("  Frames replayed: {d}\n", .{stats.frames_applied});
+            try stdout.print("  Bytes written:   {d}\n", .{stats.bytes_written});
+            var when: [32]u8 = undefined;
+            try stdout.print(
+                "  Restored to:     {s}\n",
+                .{args_mod.formatTimestamp(&when, stats.restored_to_ms)},
+            );
+            try stdout.print("  Duration:        {d} ms\n", .{stats.duration_ns / std.time.ns_per_ms});
+        },
+        .json => try stdout.print(
+            "{{\"source\":\"{s}\",\"output\":\"{s}\",\"generation\":{d},\"segments_applied\":{d}," ++
+                "\"frames_applied\":{d},\"bytes_written\":{d},\"restored_to_ms\":{d},\"duration_ns\":{d}}}\n",
+            .{
+                source,
+                output_path,
+                stats.generation,
+                stats.segments_applied,
+                stats.frames_applied,
+                stats.bytes_written,
+                stats.restored_to_ms,
+                stats.duration_ns,
+            },
+        ),
+        .csv => {
+            try stdout.writeAll(
+                "source,output,generation,segments_applied,frames_applied,bytes_written,restored_to_ms,duration_ns\n",
+            );
+            try stdout.print(
+                "{s},{s},{d},{d},{d},{d},{d},{d}\n",
+                .{
+                    source,
+                    output_path,
+                    stats.generation,
+                    stats.segments_applied,
+                    stats.frames_applied,
+                    stats.bytes_written,
+                    stats.restored_to_ms,
+                    stats.duration_ns,
+                },
+            );
+        },
+    }
+}
+
 fn cmdCheckpoint(
     allocator: std.mem.Allocator,
     stdout: anytype,
@@ -1265,6 +1360,7 @@ fn printUsage(writer: anytype) void {
         \\    checkpoint <path>   Flush pending writes and reset the WAL
         \\    backup <path>       Copy to another file, database stays open
         \\    replicate <path>    Ship changes to a directory, once or continuously
+        \\    restore <dir>       Rebuild a database from what replication shipped
         \\    check <path>        Verify main database file checksums
         \\
         \\  Query:
@@ -1412,6 +1508,33 @@ fn printCommandHelp(writer: anytype, command: Command) void {
             \\Examples:
             \\  lattice replicate mydb.lattice --to=/mnt/backup/mydb
             \\  lattice replicate mydb.lattice --to=/mnt/backup/mydb --follow --interval=30
+            \\
+        ) catch {},
+        .restore => writer.writeAll(
+            \\Usage: lattice restore <directory> --output=<path> [options]
+            \\
+            \\Rebuild a database from a directory that lattice replicate has been
+            \\shipping to.
+            \\
+            \\The snapshot is copied, the changes shipped after it are replayed on
+            \\top the same way recovery replays them, and the result is folded into
+            \\a single file. What you get back is a database you can open, copy, or
+            \\move on its own.
+            \\
+            \\With --at you get the state as of a moment in the past. What that
+            \\lands on is the last replication pass at or before the moment you
+            \\asked for, so whatever interval you replicate on is also how precisely
+            \\you can rewind. Times are read as UTC.
+            \\
+            \\Options:
+            \\  --output=<path>       Where to write the restored database
+            \\  --at=<time>           Restore as of this moment, UTC
+            \\  --force               Overwrite whatever is at the output path
+            \\  --format=<fmt>        Output format: table, json, csv
+            \\
+            \\Examples:
+            \\  lattice restore /mnt/backup/social --output=recovered.lattice
+            \\  lattice restore /mnt/backup/social --output=recovered.lattice --at="2026-08-25T14:00:00Z"
             \\
         ) catch {},
         .checkpoint => writer.writeAll(

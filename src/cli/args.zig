@@ -32,6 +32,7 @@ pub const Command = enum {
     checkpoint,
     backup,
     replicate,
+    restore,
     check,
 
     // Query
@@ -61,6 +62,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, s, "checkpoint")) return .checkpoint;
         if (std.mem.eql(u8, s, "backup")) return .backup;
         if (std.mem.eql(u8, s, "replicate")) return .replicate;
+        if (std.mem.eql(u8, s, "restore")) return .restore;
         if (std.mem.eql(u8, s, "check")) return .check;
         if (std.mem.eql(u8, s, "query")) return .query;
         if (std.mem.eql(u8, s, "exec")) return .exec;
@@ -92,6 +94,7 @@ pub const Command = enum {
             .checkpoint => "Flush pending writes and reset the write-ahead log",
             .backup => "Copy a database to another file without closing it",
             .replicate => "Ship changes to a directory, once or continuously",
+            .restore => "Rebuild a database from what replication shipped",
             .check => "Verify main database file checksums",
             .query => "Interactive Cypher REPL",
             .exec => "Execute a single query",
@@ -108,6 +111,114 @@ pub const Command = enum {
         };
     }
 };
+
+/// How many days there are from 1970-01-01 to the given date.
+///
+/// This is Howard Hinnant's `days_from_civil`, which works by shifting the year
+/// so that it starts in March. February then falls at the end, which is what
+/// makes the leap day a special case only at the boundary rather than in the
+/// middle of the arithmetic.
+fn daysFromCivil(year: i64, month: u32, day: u32) i64 {
+    const y = year - @as(i64, if (month <= 2) 1 else 0);
+    const era = @divFloor(if (y >= 0) y else y - 399, 400);
+    const yoe = y - era * 400;
+    const mp: i64 = @intCast((month + 9) % 12);
+    const doy = @divTrunc(153 * mp + 2, 5) + @as(i64, @intCast(day)) - 1;
+    const doe = yoe * 365 + @divTrunc(yoe, 4) - @divTrunc(yoe, 100) + doy;
+    return era * 146097 + doe - 719468;
+}
+
+fn parseField(text: []const u8, comptime T: type) ?T {
+    return std.fmt.parseInt(T, text, 10) catch null;
+}
+
+/// Read a moment in time, given as UTC.
+///
+/// Accepts `2026-08-25T14:30:00Z`, the same with a space instead of the `T`, and
+/// a bare date meaning midnight. Everything is treated as UTC, because a backup
+/// that restores to a different moment depending on the machine's time zone
+/// would be a trap.
+pub fn parseTimestamp(text: []const u8) ?i64 {
+    if (text.len < 10) return null;
+    if (text[4] != '-' or text[7] != '-') return null;
+
+    const year = parseField(text[0..4], i64) orelse return null;
+    const month = parseField(text[5..7], u32) orelse return null;
+    const day = parseField(text[8..10], u32) orelse return null;
+    if (month < 1 or month > 12 or day < 1 or day > 31) return null;
+
+    var seconds = daysFromCivil(year, month, day) * 86400;
+
+    if (text.len > 10) {
+        if (text[10] != 'T' and text[10] != ' ') return null;
+        if (text.len < 16) return null;
+        if (text[13] != ':') return null;
+
+        const hour = parseField(text[11..13], i64) orelse return null;
+        const minute = parseField(text[14..16], i64) orelse return null;
+        if (hour > 23 or minute > 59) return null;
+        seconds += hour * 3600 + minute * 60;
+
+        if (text.len > 16) {
+            if (text[16] != ':') return null;
+            if (text.len < 19) return null;
+            const second = parseField(text[17..19], i64) orelse return null;
+            if (second > 59) return null;
+            seconds += second;
+
+            // A trailing Z is allowed and means what is already assumed.
+            if (text.len > 19 and !(text.len == 20 and text[19] == 'Z')) return null;
+        } else if (text.len != 16) {
+            return null;
+        }
+    }
+
+    return seconds * 1000;
+}
+
+/// The date that many days after 1970-01-01.
+///
+/// The inverse of `daysFromCivil`, and it inverts the same trick: the year is
+/// treated as starting in March so that February, leap day and all, lands at the
+/// end where it does not disturb the arithmetic.
+fn civilFromDays(days: i64) struct { year: i64, month: u32, day: u32 } {
+    const z = days + 719468;
+    const era = @divFloor(if (z >= 0) z else z - 146096, 146097);
+    const doe = z - era * 146097;
+    const yoe = @divTrunc(doe - @divTrunc(doe, 1460) + @divTrunc(doe, 36524) - @divTrunc(doe, 146096), 365);
+    const y = yoe + era * 400;
+    const doy = doe - (365 * yoe + @divTrunc(yoe, 4) - @divTrunc(yoe, 100));
+    const mp = @divTrunc(5 * doy + 2, 153);
+    const d = doy - @divTrunc(153 * mp + 2, 5) + 1;
+    const m = mp + @as(i64, if (mp < 10) 3 else -9);
+    return .{
+        .year = y + @as(i64, if (m <= 2) 1 else 0),
+        .month = @intCast(m),
+        .day = @intCast(d),
+    };
+}
+
+/// Write a moment in time the way a person reads one.
+///
+/// A raw count of milliseconds tells nobody anything, and this number is the one
+/// that says which version of their data they just got back.
+pub fn formatTimestamp(buf: []u8, at_ms: i64) []const u8 {
+    const seconds = @divFloor(at_ms, 1000);
+    const days = @divFloor(seconds, 86400);
+    const rest = seconds - days * 86400;
+
+    const date = civilFromDays(days);
+    // The year is formatted unsigned, because a signed value prints its sign and
+    // "+2026" is not a date anybody writes.
+    return std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z", .{
+        @as(u32, @intCast(@max(date.year, 0))),
+        date.month,
+        date.day,
+        @as(u32, @intCast(@divTrunc(rest, 3600))),
+        @as(u32, @intCast(@divTrunc(@rem(rest, 3600), 60))),
+        @as(u32, @intCast(@rem(rest, 60))),
+    }) catch "unknown";
+}
 
 pub const Args = struct {
     command: ?Command = null,
@@ -135,6 +246,11 @@ pub const Args = struct {
     to: ?[]const u8 = null,
     follow: bool = false,
     interval_secs: u32 = 10,
+
+    // Restore options
+    output: ?[]const u8 = null,
+    at_ms: ?i64 = null,
+    force: bool = false,
 
     // Remaining positional args
     positional: []const []const u8 = &.{},
@@ -204,6 +320,14 @@ pub const Args = struct {
                         return error.InvalidInterval;
                     };
                     if (args.interval_secs == 0) return error.InvalidInterval;
+                } else if (std.mem.startsWith(u8, arg, "--output=")) {
+                    args.output = arg["--output=".len..];
+                } else if (std.mem.eql(u8, arg, "--force")) {
+                    args.force = true;
+                } else if (std.mem.startsWith(u8, arg, "--at=")) {
+                    args.at_ms = parseTimestamp(arg["--at=".len..]) orelse {
+                        return error.InvalidTimestamp;
+                    };
                 } else if (std.mem.startsWith(u8, arg, "--file=")) {
                     args.file = arg["--file=".len..];
                 } else if (std.mem.startsWith(u8, arg, "--query=")) {
@@ -254,6 +378,7 @@ pub const Args = struct {
 pub const Error = error{
     InvalidFormat,
     InvalidInterval,
+    InvalidTimestamp,
     InvalidVectorDims,
     InvalidCacheSize,
     InvalidPageSize,
@@ -318,4 +443,56 @@ test "parse page size option" {
 
     try std.testing.expectError(error.InvalidPageSize, Args.parse(allocator, &.{ "lattice", "create", "test.db", "--page-size=4095" }));
     try std.testing.expectError(error.InvalidPageSize, Args.parse(allocator, &.{ "lattice", "create", "test.db", "--page-size=65536" }));
+}
+
+test "timestamps read and print as the same moment" {
+    const cases = [_][]const u8{
+        "2026-08-25T14:30:00Z",
+        "1970-01-01T00:00:00Z",
+        "2000-02-29T12:00:00Z",
+        "2100-03-01T23:59:59Z",
+        "1999-12-31T23:59:59Z",
+    };
+
+    var buf: [32]u8 = undefined;
+    for (cases) |text| {
+        const at_ms = parseTimestamp(text) orelse return error.ParseFailed;
+        try std.testing.expectEqualStrings(text, formatTimestamp(&buf, at_ms));
+    }
+}
+
+test "timestamps accept the shapes people actually type" {
+    // A bare date means midnight, and the epoch is a value everyone can check.
+    try std.testing.expectEqual(@as(?i64, 0), parseTimestamp("1970-01-01"));
+    try std.testing.expectEqual(@as(?i64, 0), parseTimestamp("1970-01-01T00:00"));
+    try std.testing.expectEqual(@as(?i64, 0), parseTimestamp("1970-01-01T00:00:00"));
+    try std.testing.expectEqual(@as(?i64, 0), parseTimestamp("1970-01-01T00:00:00Z"));
+
+    // A space instead of the T, because that is how a shell prompt tends to
+    // produce them.
+    try std.testing.expectEqual(@as(?i64, 0), parseTimestamp("1970-01-01 00:00:00"));
+
+    // One hour in.
+    try std.testing.expectEqual(@as(?i64, 3_600_000), parseTimestamp("1970-01-01T01:00:00Z"));
+}
+
+test "a time that is not a time is refused" {
+    const bad = [_][]const u8{
+        "",
+        "not-a-time",
+        "2026-13-01",
+        "2026-00-01",
+        "2026-08-32",
+        "2026-08-25T25:00:00",
+        "2026-08-25T12:60:00",
+        "2026-08-25T12:00:61",
+        "2026/08/25",
+        "2026-08-25X12:00:00",
+        "2026-08-25T12:00:00X",
+        "2026-08-25T12",
+    };
+
+    for (bad) |text| {
+        try std.testing.expectEqual(@as(?i64, null), parseTimestamp(text));
+    }
 }

@@ -122,6 +122,24 @@ pub fn build(b: *std.Build) void {
     });
     const run_lib_tests = b.addRunArtifact(lib_tests);
 
+    // Command-line argument tests. These live outside src/ as far as the library
+    // tests are concerned, so they need a target of their own or they never run.
+    const cli_args_test_module = b.createModule(.{
+        .root_source_file = b.path("src/cli/args.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "lattice", .module = lib_module },
+        },
+    });
+    cli_args_test_module.addImport("compat", compat_module);
+    cli_args_test_module.link_libc = true;
+
+    const cli_args_tests = b.addTest(.{
+        .root_module = cli_args_test_module,
+    });
+    const run_cli_args_tests = b.addRunArtifact(cli_args_tests);
+
     // ReleaseSmall: strip symbols, disable unwind tables, omit frame pointers
     if (optimize == .ReleaseSmall) {
         for ([_]*std.Build.Module{ lib_module, shared_lib_module, cli_module }) |mod| {
@@ -178,6 +196,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
     test_step.dependOn(&run_lib_tests.step);
+    test_step.dependOn(&run_cli_args_tests.step);
 
     // Integration test module - imports the library module
     const import_export_module = b.createModule(.{
