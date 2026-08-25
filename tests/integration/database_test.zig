@@ -3272,3 +3272,255 @@ test "database: WAL reader treats damage as damage and timing as timing" {
     const good = try reader.readFrameRetrying(0, 3, 0);
     try std.testing.expectEqual(@as(u64, 0), good.number);
 }
+
+/// Check that a replication target holds the segment covering frames
+/// `[from, to)` of `generation`, and report how big it is.
+///
+/// Segment names encode the frame range they cover, which is what makes a
+/// restore able to order and verify them without opening every file. Asserting
+/// on the name therefore checks the part of the layout a restore depends on.
+fn segmentSize(dest_dir: []const u8, generation: u64, from: u64, to: u64) !u64 {
+    const allocator = std.testing.allocator;
+    const segment_path = try std.fmt.allocPrint(
+        allocator,
+        "{s}/gen-{d:0>10}/frames/{d:0>10}-{d:0>10}.frames",
+        .{ dest_dir, generation, from, to - 1 },
+    );
+    defer allocator.free(segment_path);
+
+    const file = try @import("compat").fs.cwd().openFile(segment_path, .{});
+    defer file.close();
+    const info = try file.stat();
+    return info.size;
+}
+
+/// Write `n` nodes, one committed transaction each, so real WAL frames appear.
+fn writeNodes(db: *Database, label: []const u8, n: usize) !void {
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        var txn = try db.beginTransaction(.read_write);
+        const node = try db.createNode(&txn, &[_][]const u8{label});
+        try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+        try db.commitTransaction(&txn);
+    }
+}
+
+test "database: replication ships a snapshot and then only new frames" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_replicate.ltdb";
+    const wal_path = "/tmp/lattice_replicate.ltdb-wal";
+    const dest = "/tmp/lattice_replicate_dest";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    @import("compat").fs.cwd().deleteTree(dest) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteTree(dest) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+            // Truncation is one of the things under test, so drive it by hand.
+            .auto_checkpoint = null,
+        },
+    });
+    defer db.close();
+
+    try writeNodes(db, "P", 200);
+
+    // The first pass has no destination to continue from, so it opens a
+    // generation and writes a full snapshot.
+    const first = try db.replicateTo(dest);
+    try std.testing.expect(first.started_generation);
+    try std.testing.expectEqual(@as(u64, 1), first.generation);
+    try std.testing.expect(first.snapshot_bytes > 0);
+    // Everything written so far is already inside the snapshot, so nothing is
+    // shipped as frames.
+    try std.testing.expectEqual(@as(u64, 0), first.frames_shipped);
+
+    // With no writes in between, a second pass has nothing to do and says so
+    // rather than treating an empty pass as a problem.
+    const idle = try db.replicateTo(dest);
+    try std.testing.expect(!idle.started_generation);
+    try std.testing.expectEqual(@as(u64, 1), idle.generation);
+    try std.testing.expectEqual(@as(u64, 0), idle.frames_shipped);
+    try std.testing.expectEqual(@as(u64, 0), idle.snapshot_bytes);
+
+    // Frames below this point are already covered by the snapshot, so shipping
+    // picks up from here rather than from zero.
+    const snapshot_frames = ((try lattice.storage.replicate.readManifest(allocator, dest)).?).frames_shipped;
+    try std.testing.expect(snapshot_frames > 0);
+
+    // New writes are shipped as frames against the generation already there.
+    try writeNodes(db, "Q", 200);
+    const second = try db.replicateTo(dest);
+    try std.testing.expect(!second.started_generation);
+    try std.testing.expectEqual(@as(u64, 1), second.generation);
+    try std.testing.expect(second.frames_shipped > 0);
+    try std.testing.expect(second.bytes_shipped > 0);
+    try std.testing.expectEqual(@as(u64, 0), second.snapshot_bytes);
+
+    // Each pass that ships anything leaves behind one segment named for the
+    // frames it covers, picking up where the snapshot left off.
+    const second_end = snapshot_frames + second.frames_shipped;
+    try std.testing.expectEqual(
+        second.bytes_shipped,
+        try segmentSize(dest, 1, snapshot_frames, second_end),
+    );
+
+    try writeNodes(db, "R", 200);
+    const third = try db.replicateTo(dest);
+    try std.testing.expect(third.frames_shipped > 0);
+    try std.testing.expectEqual(
+        third.bytes_shipped,
+        try segmentSize(dest, 1, second_end, second_end + third.frames_shipped),
+    );
+
+    // The manifest is what a restore reads, so it has to agree with what was
+    // actually shipped.
+    // Shipping is only useful if what lands at the destination is the same bytes
+    // the writer produced. Compare the segment against the live log frame by
+    // frame, which is what a restore will ultimately depend on.
+    {
+        const segment_path = try std.fmt.allocPrint(
+            allocator,
+            "{s}/gen-{d:0>10}/frames/{d:0>10}-{d:0>10}.frames",
+            .{ dest, @as(u64, 1), snapshot_frames, second_end - 1 },
+        );
+        defer allocator.free(segment_path);
+
+        const segment = try @import("compat").fs.cwd().openFile(segment_path, .{});
+        defer segment.close();
+
+        var posix = lattice.storage.vfs.PosixVfs.init(allocator);
+        const vfs = posix.vfs();
+        var reader = try lattice.storage.wal_reader.WalReader.open(allocator, vfs, wal_path, null);
+        defer reader.close();
+
+        const shipped = try allocator.alloc(u8, reader.frame_size);
+        defer allocator.free(shipped);
+
+        var n: u64 = snapshot_frames;
+        while (n < second_end) : (n += 1) {
+            const at = (n - snapshot_frames) * reader.frame_size;
+            const read = try segment.preadAll(shipped, at);
+            try std.testing.expectEqual(@as(usize, reader.frame_size), read);
+
+            const original = try reader.readFrame(n);
+            try std.testing.expectEqualSlices(u8, original.raw, shipped);
+        }
+    }
+
+    const manifest = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
+    try std.testing.expectEqual(@as(u64, 1), manifest.generation);
+    try std.testing.expectEqual(
+        second_end + third.frames_shipped,
+        manifest.frames_shipped,
+    );
+    try std.testing.expect(manifest.has_fingerprint);
+}
+
+test "database: replication starts a new generation after the log is truncated" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_replicate_gen.ltdb";
+    const wal_path = "/tmp/lattice_replicate_gen.ltdb-wal";
+    const dest = "/tmp/lattice_replicate_gen_dest";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    @import("compat").fs.cwd().deleteTree(dest) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteTree(dest) catch {};
+
+    var db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+            .auto_checkpoint = null,
+        },
+    });
+    defer db.close();
+
+    try writeNodes(db, "P", 200);
+    const first = try db.replicateTo(dest);
+    try std.testing.expectEqual(@as(u64, 1), first.generation);
+
+    const first_end = ((try lattice.storage.replicate.readManifest(allocator, dest)).?).frames_shipped;
+
+    try writeNodes(db, "Q", 200);
+    const second = try db.replicateTo(dest);
+    try std.testing.expect(second.frames_shipped > 0);
+
+    // Truncating resets frame numbering. A follower that kept counting would
+    // ship the new frame 40 believing it already had it, so this has to be
+    // noticed and answered with a fresh snapshot.
+    _ = try db.checkpoint(.truncate);
+    try writeNodes(db, "R", 200);
+
+    const third = try db.replicateTo(dest);
+    try std.testing.expect(third.started_generation);
+    try std.testing.expectEqual(@as(u64, 2), third.generation);
+    try std.testing.expect(third.snapshot_bytes > 0);
+
+    // The first generation's frames are left alone, because a restore to a point
+    // inside it still needs them.
+    try std.testing.expect(
+        (try segmentSize(dest, 1, first_end, first_end + second.frames_shipped)) > 0,
+    );
+
+    const manifest = (try lattice.storage.replicate.readManifest(allocator, dest)).?;
+    try std.testing.expectEqual(@as(u64, 2), manifest.generation);
+}
+
+test "database: replication refuses a destination holding another database" {
+    const allocator = std.testing.allocator;
+    const path_a = "/tmp/lattice_replicate_a.ltdb";
+    const path_b = "/tmp/lattice_replicate_b.ltdb";
+    const dest = "/tmp/lattice_replicate_mix_dest";
+
+    for ([_][]const u8{ path_a, path_b }) |p| {
+        @import("compat").fs.cwd().deleteFile(p) catch {};
+        const wal = try std.fmt.allocPrint(allocator, "{s}-wal", .{p});
+        defer allocator.free(wal);
+        @import("compat").fs.cwd().deleteFile(wal) catch {};
+    }
+    @import("compat").fs.cwd().deleteTree(dest) catch {};
+    defer {
+        for ([_][]const u8{ path_a, path_b }) |p| {
+            @import("compat").fs.cwd().deleteFile(p) catch {};
+        }
+        @import("compat").fs.cwd().deleteFile("/tmp/lattice_replicate_a.ltdb-wal") catch {};
+        @import("compat").fs.cwd().deleteFile("/tmp/lattice_replicate_b.ltdb-wal") catch {};
+        @import("compat").fs.cwd().deleteTree(dest) catch {};
+    }
+
+    const options = OpenOptions{
+        .create = true,
+        .config = .{
+            .enable_fts = false,
+            .enable_vector = false,
+            .auto_checkpoint = null,
+        },
+    };
+
+    var db_a = try Database.open(allocator, path_a, options);
+    defer db_a.close();
+    try writeNodes(db_a, "P", 50);
+    _ = try db_a.replicateTo(dest);
+
+    // Two databases shipping into one directory would interleave generations
+    // that have nothing to do with each other, and the mistake would only show
+    // up at restore. The UUID recorded in the manifest catches it now.
+    var db_b = try Database.open(allocator, path_b, options);
+    defer db_b.close();
+    try writeNodes(db_b, "P", 50);
+    try std.testing.expectError(
+        lattice.storage.replicate.ReplicateError.UuidMismatch,
+        db_b.replicateTo(dest),
+    );
+}

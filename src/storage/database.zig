@@ -72,6 +72,8 @@ pub const BackupStats = struct {
     duration_ns: u64,
 };
 
+const replicate_mod = @import("replicate.zig");
+
 const label_index_mod = lattice.graph.label_index;
 const LabelIndex = label_index_mod.LabelIndex;
 
@@ -1195,6 +1197,23 @@ pub const Database = struct {
             .pages_flushed = pages_flushed,
             .duration_ns = @intCast(end_ns - start_ns),
         };
+    }
+
+    /// Ship whatever has changed since the last pass into `dest_dir`.
+    ///
+    /// The first call, and any call after the log has been truncated, writes a
+    /// full snapshot and begins a new generation. Every other call copies the
+    /// write-ahead log frames that have appeared since. Shipping nothing is a
+    /// normal outcome rather than an error, so this is safe to call on a timer.
+    ///
+    /// This lives on the database rather than in a separate process because a
+    /// snapshot has to be taken with no writes in flight, and there is no
+    /// cross-process locking to arrange that from outside.
+    pub fn replicateTo(
+        self: *Self,
+        dest_dir: []const u8,
+    ) replicate_mod.ReplicateError!replicate_mod.ReplicateStats {
+        return replicate_mod.replicate(self, dest_dir);
     }
 
     pub fn compact(self: *Self) DatabaseError!CompactStats {

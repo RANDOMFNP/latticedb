@@ -257,6 +257,22 @@ pub const fs = struct {
             return self.dir.deleteFile(path);
         }
 
+        /// Create a directory and any missing parents. Already existing is fine.
+        pub fn makePath(self: Cwd, sub_path: []const u8) !void {
+            if (has_io_fs) {
+                return self.dir.createDirPath(io, sub_path);
+            }
+            return self.dir.makePath(sub_path);
+        }
+
+        /// Remove a directory and everything inside it.
+        pub fn deleteTree(self: Cwd, sub_path: []const u8) !void {
+            if (has_io_fs) {
+                return self.dir.deleteTree(io, sub_path);
+            }
+            return self.dir.deleteTree(sub_path);
+        }
+
         pub fn rename(self: Cwd, old_path: []const u8, new_path: []const u8) !void {
             if (has_io_fs) {
                 return self.dir.rename(old_path, self.dir, new_path, io);
