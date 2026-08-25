@@ -27,6 +27,7 @@
 - [Durable Streams](./guides/durable-streams.md)
 - [Data Export](./guides/data-export.md)
 - [Transactions and Durability](./guides/transactions.md)
+- [Backup and Replication](./guides/backup-and-replication.md)
 - [Property Indexes](./guides/property-indexes.md)
 - [Performance Tuning](./guides/performance-tuning.md)
 

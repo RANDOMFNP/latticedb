@@ -364,6 +364,8 @@ LatticeDB's inverted index with BM25 scoring is ~300x faster than SQLite FTS5 an
 
 **Operations**
 - Single-file storage with write-ahead log for crash recovery
+- Continuous backup: ship changes to a directory and restore to a point in time
+- Hot backup with `lattice backup`, taken without closing the database
 - Durable named streams with explicit consumer offsets, manual trim, and graph changefeeds
 - Online freelist reuse plus `lattice compact` for safe physical tail reclamation
 - Zero configuration — open a file and start working
@@ -389,7 +391,7 @@ LatticeDB is embedded with a single-writer model. One process opens the file and
 If your data fits naturally into rows and columns — sales records, user accounts, time series — a relational database like SQLite or PostgreSQL will be simpler and just as fast. Graph databases shine when relationships between records are the point, not an afterthought.
 
 **You need to scale beyond a single machine.**
-LatticeDB stores everything in one file on one machine. If you need sharding, replication, or distributed queries across billions of nodes, look at Neo4j cluster, Dgraph, or a managed service like Neptune.
+LatticeDB stores everything in one file on one machine. It can ship that file's changes elsewhere continuously, so a disk failure costs you seconds rather than everything, but that is backup rather than clustering. If you need sharding, multi-node replicas serving reads, or distributed queries across billions of nodes, look at Neo4j cluster, Dgraph, or a managed service like Neptune.
 
 **You need the full Cypher language.**
 LatticeDB supports most of Cypher but not all of it. Features like `OPTIONAL MATCH` and `CALL` procedures are not yet implemented. If your queries depend on these, Neo4j is the complete implementation.
