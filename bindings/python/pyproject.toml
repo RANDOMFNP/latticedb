@@ -43,8 +43,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jeffhajewski/latticedb"
-Documentation = "https://latticedb.org"
+Homepage = "https://latticedb.org"
+Documentation = "https://docs.latticedb.org"
 Repository = "https://github.com/jeffhajewski/latticedb"
 Issues = "https://github.com/jeffhajewski/latticedb/issues"
 
