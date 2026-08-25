@@ -382,6 +382,47 @@ another process has open. If you want to replicate a database while your
 application is using it, call `replicateTo` on the handle your application
 already has, and use this command for the case where nothing else is running.
 
+### Getting a database back
+
+`restore` turns a replication directory back into a database:
+
+```bash
+lattice restore /mnt/backup/social --output=recovered.lattice
+```
+
+```text
+Restored /mnt/backup/social to recovered.lattice
+  Generation:      1
+  Segments:        2
+  Frames replayed: 20
+  Bytes written:   73728
+  Restored to:     2026-08-25T22:44:18Z
+  Duration:        468 ms
+```
+
+It copies the snapshot, replays the changes shipped after it, and folds the
+result into one file. You can open that file, copy it, or move it, with nothing
+else beside it that has to be kept together with it.
+
+To go back to an earlier moment, say when:
+
+```bash
+lattice restore /mnt/backup/social --output=recovered.lattice --at="2026-08-25T14:00:00Z"
+```
+
+Times are read as UTC, so a restore means the same thing wherever you run it. A
+bare date works too and means midnight.
+
+There is a limit worth understanding here. What you get is the state as of the
+last replication pass at or before the moment you asked for, not the state at
+that exact instant. If you replicate every thirty seconds, you can rewind to
+within thirty seconds. That is why the output tells you the moment it actually
+restored to, rather than repeating the one you asked for.
+
+`restore` will not write over a file that already exists unless you pass
+`--force`, because the thing most likely to be sitting at the output path is a
+database somebody still wants.
+
 ### Flushing pending writes
 
 Changes are written to a write-ahead log first, and folded into the database file
@@ -478,6 +519,7 @@ lattice exec social.lattice --query="MATCH (p:Person) RETURN p.name" --format=js
 | `checkpoint <path>` | Flush pending writes into the file and reset the log |
 | `backup <path>` | Copy to another file while the database stays open |
 | `replicate <path>` | Keep a directory up to date with the database |
+| `restore <dir>` | Rebuild a database from a replication directory |
 | `check <path>` | Verify page checksums in the main file |
 | `query <path>` | Open an interactive Cypher shell |
 | `exec <path>` | Run one query and exit |

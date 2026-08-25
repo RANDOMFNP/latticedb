@@ -253,10 +253,36 @@ and never touched the log, which is how the command line and every client librar
 issue writes. A backup would have missed nearly everything and reported success.
 That is fixed separately, because it was a durability bug in its own right.
 
-**Phase 5 — object storage and restore.** S3-compatible destinations, the
-manifest format, `lattice restore`, and point-in-time selection.
+**Phase 5 — restore and point-in-time.** *Done for local destinations.*
+`storage/restore.zig` and `lattice restore` rebuild a database from a destination,
+with `--at` for a moment in the past.
 
-Phases 1 through 3 are worth doing even if 4 and 5 never happen.
+Restore copies the snapshot, rebuilds a log from the segments, opens the result so
+ordinary recovery replays it, then folds that in and clears the log. Reusing
+recovery rather than reimplementing replay was the main decision: a second
+implementation would drift from the real one, and a restore that diverges from
+recovery is worse than one that shares its bugs.
+
+Frames are packed from position zero rather than kept at their original numbers.
+A generation rarely starts shipping at frame zero, and a gap below the first
+shipped frame reads as a stretch of empty frames that recovery treats as damage.
+Recovery walks frames by position and never reads the number inside one, so
+packing is free.
+
+Point-in-time resolution is a replication pass, not a single write. The manifest
+records when each segment landed, and a restore applies every segment shipped at
+or before the target. Claiming finer precision would mean replaying part of a
+frame, which is not something the log supports and not something anybody asked
+for.
+
+**Phase 6 — object storage.** S3-compatible destinations, which is the part of
+the original Phase 5 that is still outstanding. It needs an HTTP client and
+request signing, so it is a dependency decision rather than a continuation of the
+work above. The destination layout is already the shape object storage wants:
+whole objects, written once, named by content rather than mutated in place, with
+a manifest naming them all.
+
+Phases 1 through 3 are worth doing even if the rest never happens.
 
 ## Open questions
 
