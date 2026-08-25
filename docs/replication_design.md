@@ -1,0 +1,248 @@
+# Continuous Backup and Replication Design
+
+LatticeDB has no continuous backup story. Today the only correct backup is to
+close the database and copy the file, or to take a logical export with
+`lattice export`. Neither gives point-in-time recovery, and neither is
+incremental.
+
+This is the design for closing that gap, aimed at the case people actually ask
+about: one machine, one writer, a few minutes of tolerable downtime, and a
+desire not to lose the last hour of writes when the disk dies.
+
+## Goals
+
+- Continuously ship changes off the machine, so a disk failure costs seconds
+  rather than everything since the last manual copy.
+- Restore to a point in time, not just to the last snapshot.
+- Require no change to how applications write. Replication is something you turn
+  on beside the database, not something queries have to know about.
+- Make an incomplete or interrupted backup detectable rather than silently
+  partial.
+
+## Non-goals
+
+- High availability. There is no failover, no leader election, and no second
+  writer. This is backup and restore, not clustering.
+- Multi-writer replication. The engine allows one writer, and this does not
+  change that.
+- Streaming to a follower that serves reads. That is a larger feature and should
+  not be smuggled in through the backup path.
+
+## What exists today
+
+Verified against the current source rather than assumed:
+
+- **The WAL is append-only while the database is open.** `AutoCheckpointConfig`
+  exists in `src/storage/checkpoint.zig` but nothing constructs it, so no
+  automatic checkpointing happens. In a 400-write run the WAL grew from 8 KB to
+  1.6 MB and never shrank.
+- **Checkpointing happens only on close**, through `checkpointWal(.truncate)`,
+  or explicitly via the C API and `lattice compact`. On a clean close the WAL is
+  truncated to a bare 4096-byte header and the main file becomes self-contained.
+- **Frames are individually addressable and checksummed.** `WalFrameHeader`
+  carries `frame_number`, `record_count`, `data_size`, `prev_frame_lsn`, and a
+  CRC32C of the frame data. Frames are fixed size, so frame `n` lives at
+  `WAL_HEADER_SIZE + n * frame_size`.
+- **The WAL header binds to one database.** It stores `database_uuid`, which must
+  match the main file, plus `frame_count` and `checkpoint_lsn`.
+- **A frame is published after it is durable.** `flushCurrentFrame` assembles the
+  whole frame in a buffer, writes it in a single call at a computed offset, and
+  only then increments `frame_count` and rewrites the header.
+
+That last point is the important one. It means a second process can read
+`frame_count` from the header and trust that every frame below it is complete. A
+reader never has to guess whether it is looking at a half-written frame, and if
+a torn read happens anyway the per-frame checksum catches it.
+
+## Physical or logical
+
+Two substrates are available.
+
+**Logical**, by shipping the built-in `__lattice_changes` changefeed, which
+already exists in `src/stream/store.zig`. Attractive because the machinery is
+there and the output is inspectable.
+
+**Physical**, by shipping WAL frames.
+
+This design chooses physical, for three reasons.
+
+Replaying a logical changefeed has to reproduce *derived* state, not just user
+data. The HNSW vector index, the BM25 inverted index, and property indexes are
+all rebuilt as a side effect of replay, and any divergence between how the
+original and the replica build them is a silent correctness bug that only
+surfaces as wrong query results much later. Physical replay copies the pages and
+sidesteps the question.
+
+A backup is judged on whether the restored database is the same database.
+Physical shipping gives byte-equivalence; logical gives "equivalent as far as we
+modelled".
+
+And the property that usually makes physical replication hard is absent here.
+Litestream's central difficulty with SQLite is that checkpointing recycles WAL
+frames out from under the replicator, which is why it holds a long-lived read
+transaction to block checkpoints. LatticeDB does not checkpoint automatically at
+all, so frames are stable until an explicit truncate. The hard part is already
+solved by accident.
+
+## Design
+
+### Generations
+
+WAL frame numbering restarts after a truncate, so `(database_uuid, frame_number)`
+is not unique over the life of a database. A **generation** is the span between
+two truncations: it begins with a full snapshot of the main file and continues
+as a sequence of WAL frames.
+
+A generation id is needed in the WAL header. `WalHeader` has a `_reserved: u16`
+and 4048 bytes of padding, so a `generation: u64` fits without changing the
+header size or breaking the format version — though it does need a
+`WAL_FORMAT_VERSION` bump and a read path for the older layout.
+
+The generation counter increments on every truncate and is durable in the main
+file header.
+
+### Layout at the destination
+
+```
+<root>/<database_uuid>/
+  generations/
+    <generation>/
+      snapshot.lattice.zst        full main file at generation start
+      wal/
+        0000000000.frames.zst     frames [0, 1024)
+        0000001024.frames.zst     frames [1024, 2048)
+        ...
+      manifest.json               generation, frame ranges, checksums, timestamps
+  latest.json                     pointer to the newest complete generation
+```
+
+Segments are batches of frames rather than one object per frame, because object
+storage charges per request and a 4 KB object is all overhead. The batch size is
+a tuning knob; the manifest records actual ranges so it can change without
+breaking restore.
+
+### The replicator loop
+
+The replicator is a separate process reading the same files. It does not open
+the database.
+
+1. Read the WAL header. Verify magic, `database_uuid`, and header checksum.
+2. If `generation` differs from the last known one, a truncate happened: start a
+   new generation, which means taking a fresh snapshot.
+3. Read frames from `last_shipped` to `frame_count`, at computed offsets.
+4. Verify each frame's CRC32C. A mismatch means a torn read of a frame being
+   written; back off and retry rather than treating it as corruption.
+5. Batch, compress, upload. Record progress durably *after* the upload lands.
+6. Sleep, repeat.
+
+No coordination with the writer is required for any of this, which is what makes
+it safe to add without touching the write path.
+
+### Snapshots
+
+A generation starts with a snapshot of the main file. Taking one requires the
+main file to be consistent, which today means either a clean close or an
+explicit checkpoint.
+
+`lattice checkpoint` should therefore become a supported operation that flushes
+without closing, so the replicator can ask for a consistent snapshot point on a
+running database. The `full` checkpoint mode already exists and does not truncate,
+which is exactly the semantics needed: flush dirty pages to the main file, leave
+the WAL alone, do not disturb frame numbering.
+
+### Restore
+
+```bash
+lattice restore s3://bucket/backups --output=restored.lattice
+lattice restore s3://bucket/backups --output=restored.lattice --at="2026-08-20T14:00:00Z"
+```
+
+1. Read `latest.json`, pick the generation covering the target time.
+2. Download and decompress the snapshot.
+3. Download WAL segments in order, verifying checksums.
+4. Reconstruct a WAL file containing frames up to the target LSN.
+5. Open the database, which runs ordinary recovery over that WAL.
+
+Restore deliberately reuses the existing recovery path rather than
+reimplementing replay. If recovery has a bug, restore should have the same bug,
+not a different one.
+
+### The close problem
+
+Truncation on close discards frames. If the replicator is behind when the
+process exits, those frames are gone and the generation ends short.
+
+Two mitigations, in order of preference:
+
+- **Ship before truncating.** Close already does meaningful work; a hook that
+  waits, briefly and with a timeout, for the replicator to acknowledge the
+  current `frame_count` is cheap and closes the window in the normal case.
+- **Snapshot on generation start.** Even if the tail is lost, the next
+  generation opens with a full snapshot, so the backup is complete as of the
+  restart. What is lost is point-in-time recovery *into* the gap.
+
+Neither is free, and the first needs a timeout so a dead replicator cannot hang
+shutdown.
+
+## Prerequisite: bounded WAL growth
+
+There is a problem to fix before any of this, and it is a problem independent of
+replication.
+
+Because nothing checkpoints automatically, a long-running process accumulates
+WAL frames without limit. The exact deployment this feature targets — one
+webserver holding the database open for weeks — is the worst case. The WAL grows
+until the process restarts, and recovery time grows with it. `AutoCheckpointConfig`
+was written for this and never wired up.
+
+Replication makes the tension sharper rather than causing it: checkpointing
+frequently keeps the WAL small but shortens the window in which frames are
+available to ship. The policy needs to consider both, which argues for
+checkpointing on a threshold *and* honouring a replication low-water mark, so a
+checkpoint never discards frames the replicator has not acknowledged.
+
+This should be built first. It is smaller, it is needed regardless, and getting
+the checkpoint policy wrong afterwards would mean redesigning the replicator
+around it.
+
+## Phasing
+
+**Phase 1 — bounded WAL.** Wire up automatic checkpointing with a frame
+threshold and a minimum interval. Add `lattice checkpoint` as a supported
+command. No replication yet. Fixes a real operational problem on its own.
+
+**Phase 2 — `lattice backup`.** A single command that takes a consistent
+snapshot of a running database: checkpoint, copy, verify. Not continuous, but it
+removes the stop-the-process requirement and is most of the value for many
+users. Ships quickly and is independently useful.
+
+**Phase 3 — WAL reader.** A documented, tested API for reading frames from a WAL
+independently of the writer, including the retry-on-checksum-mismatch behaviour.
+This is the piece everything else depends on, and it is testable in isolation.
+
+**Phase 4 — `lattice replicate`.** The continuous loop, with a `file://`
+destination first. Local destinations are easier to test and are genuinely
+useful for shipping to a mounted volume or a second disk.
+
+**Phase 5 — object storage and restore.** S3-compatible destinations, the
+manifest format, `lattice restore`, and point-in-time selection.
+
+Phases 1 through 3 are worth doing even if 4 and 5 never happen.
+
+## Open questions
+
+- **Does the generation id belong in the WAL header or the main file header, or
+  both?** Both is probably right, since the replicator reads the WAL and the
+  restore path reads the main file, and disagreement between them is a
+  detectable error worth having.
+- **Should the replicator be a subcommand or a separate binary?** A subcommand
+  is easier to ship and document; a separate binary keeps the CLI free of
+  long-running processes and cloud SDK dependencies.
+- **How is the replication low-water mark communicated to the writer?** A file
+  the replicator updates is the simplest thing that works and needs no IPC.
+- **What is the compression story?** Frames are page-shaped and compress well,
+  but a per-segment codec choice needs to be in the manifest so it can change.
+- **How is this tested?** Crash-consistency testing is the hard part. The
+  existing `zig build crash-test` harness is the natural place, extended to
+  assert that a restored copy matches the original after a kill at an arbitrary
+  point.
