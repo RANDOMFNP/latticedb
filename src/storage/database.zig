@@ -1405,6 +1405,20 @@ pub const Database = struct {
         /// Take a lock on the materialised file. Ignored in memory, where there
         /// is no second process to exclude. See `OpenOptions.lock`.
         lock: bool = true,
+        /// Point at the caller's bytes instead of copying them.
+        ///
+        /// Saves holding the database twice while it loads, and each page
+        /// becomes a copy of its own the first time it is written, so reading
+        /// and lightly editing a database keeps one copy of nearly all of it.
+        ///
+        /// **The bytes have to outlive the database.** That is why this is off
+        /// by default, and why it is unavailable to callers who cannot promise
+        /// it: Go may not let C retain a pointer into its heap at all, and
+        /// pinning a Java array for the life of a database would hold up the
+        /// collector for just as long.
+        ///
+        /// Only meaningful with `in_memory`.
+        borrow_bytes: bool = false,
     };
 
     /// Open a database from bytes produced by `serialize`.
@@ -1491,7 +1505,11 @@ pub const Database = struct {
         var handed_over = false;
         errdefer if (!handed_over) backend.deinit();
 
-        backend.writeWholeFile(MEMORY_PATH, bytes) catch return DatabaseError.OutOfMemory;
+        if (options.borrow_bytes) {
+            backend.borrowWholeFile(MEMORY_PATH, bytes) catch return DatabaseError.OutOfMemory;
+        } else {
+            backend.writeWholeFile(MEMORY_PATH, bytes) catch return DatabaseError.OutOfMemory;
+        }
 
         handed_over = true;
         const db = try Self.openWithBackend(

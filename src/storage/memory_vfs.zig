@@ -35,10 +35,29 @@ const LockMode = vfs_mod.LockMode;
 /// lands inside a single chunk rather than straddling two.
 pub const CHUNK_SIZE: usize = 4096;
 
+/// One page-sized piece of a file.
+///
+/// A chunk either owns its bytes or points into a buffer somebody else owns. A
+/// database seeded from a caller's blob starts out entirely borrowed, and each
+/// chunk becomes owned the first time something writes to it. A workload that
+/// opens a database, reads it, and changes a little of it therefore holds one
+/// copy of nearly everything rather than two.
+const Chunk = union(enum) {
+    borrowed: []const u8,
+    owned: []u8,
+
+    fn bytes(self: Chunk) []const u8 {
+        return switch (self) {
+            .borrowed => |b| b,
+            .owned => |o| o,
+        };
+    }
+};
+
 /// The bytes of one file, held as page-sized pieces.
 const Contents = struct {
     allocator: Allocator,
-    chunks: std.ArrayListUnmanaged([]u8),
+    chunks: std.ArrayListUnmanaged(Chunk),
     /// Length of the file, which is not the same as the space its chunks
     /// provide: the last chunk is usually partly unused.
     len: u64,
@@ -48,9 +67,34 @@ const Contents = struct {
     }
 
     fn deinit(self: *Contents) void {
-        for (self.chunks.items) |chunk| self.allocator.free(chunk);
+        for (self.chunks.items) |chunk| {
+            // Borrowed chunks belong to the caller and are not ours to release.
+            switch (chunk) {
+                .owned => |o| self.allocator.free(o),
+                .borrowed => {},
+            }
+        }
         self.chunks.deinit(self.allocator);
         self.* = undefined;
+    }
+
+    /// Turn a borrowed chunk into one of our own, so it can be written to.
+    ///
+    /// Copy-on-write at page granularity. Until this runs the bytes belong to
+    /// whoever handed them over and must not be modified.
+    fn makeOwned(self: *Contents, index: usize) VfsError![]u8 {
+        switch (self.chunks.items[index]) {
+            .owned => |o| return o,
+            .borrowed => |b| {
+                const copy = self.allocator.alloc(u8, CHUNK_SIZE) catch {
+                    return VfsError.Unexpected;
+                };
+                @memset(copy, 0);
+                @memcpy(copy[0..b.len], b);
+                self.chunks.items[index] = .{ .owned = copy };
+                return copy;
+            },
+        }
     }
 
     /// Make sure a chunk exists for every byte below `needed`.
@@ -63,11 +107,27 @@ const Contents = struct {
             // Zeroed, because a file grown past its end reads as zeroes rather
             // than as whatever the allocator last had there.
             @memset(chunk, 0);
-            self.chunks.append(self.allocator, chunk) catch {
+            self.chunks.append(self.allocator, .{ .owned = chunk }) catch {
                 self.allocator.free(chunk);
                 return VfsError.Unexpected;
             };
         }
+    }
+
+    /// Point this file at bytes somebody else owns.
+    ///
+    /// The buffer has to outlive the file, which is the caller's problem to
+    /// arrange and is why this is not the default.
+    fn borrowWhole(self: *Contents, data: []const u8) VfsError!void {
+        var at: usize = 0;
+        while (at < data.len) {
+            const take = @min(CHUNK_SIZE, data.len - at);
+            self.chunks.append(self.allocator, .{ .borrowed = data[at..][0..take] }) catch {
+                return VfsError.Unexpected;
+            };
+            at += take;
+        }
+        self.len = data.len;
     }
 
     fn readAt(self: *const Contents, offset: u64, buf: []u8) usize {
@@ -81,11 +141,15 @@ const Contents = struct {
             const at = offset + done;
             const chunk_index: usize = @intCast(at / CHUNK_SIZE);
             const within: usize = @intCast(at % CHUNK_SIZE);
-            const take = @min(CHUNK_SIZE - within, @as(usize, @intCast(want - done)));
-            @memcpy(
-                buf[@intCast(done)..][0..take],
-                self.chunks.items[chunk_index][within..][0..take],
+            const chunk = self.chunks.items[chunk_index].bytes();
+            // A borrowed tail chunk can be shorter than a full chunk, so a read
+            // that runs past its end stops there.
+            if (within >= chunk.len) break;
+            const take = @min(
+                @min(CHUNK_SIZE - within, chunk.len - within),
+                @as(usize, @intCast(want - done)),
             );
+            @memcpy(buf[@intCast(done)..][0..take], chunk[within..][0..take]);
             done += take;
         }
         return @intCast(done);
@@ -101,10 +165,9 @@ const Contents = struct {
             const chunk_index: usize = @intCast(at / CHUNK_SIZE);
             const within: usize = @intCast(at % CHUNK_SIZE);
             const put = @min(CHUNK_SIZE - within, data.len - done);
-            @memcpy(
-                self.chunks.items[chunk_index][within..][0..put],
-                data[done..][0..put],
-            );
+            // Writing is what converts a borrowed chunk to one of our own.
+            const chunk = try self.makeOwned(chunk_index);
+            @memcpy(chunk[within..][0..put], data[done..][0..put]);
             done += put;
         }
 
@@ -127,14 +190,19 @@ const Contents = struct {
         const keep = (new_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
         while (self.chunks.items.len > keep) {
             const chunk = self.chunks.pop() orelse break;
-            self.allocator.free(chunk);
+            switch (chunk) {
+                .owned => |o| self.allocator.free(o),
+                .borrowed => {},
+            }
         }
 
         // Whatever is left above the new end reads as zeroes if the file grows
-        // back, rather than as the data that used to be there.
+        // back, rather than as the data that used to be there. Clearing it means
+        // writing, so a borrowed chunk becomes ours first.
         if (keep > 0 and new_size % CHUNK_SIZE != 0) {
             const within: usize = @intCast(new_size % CHUNK_SIZE);
-            @memset(self.chunks.items[keep - 1][within..], 0);
+            const chunk = try self.makeOwned(keep - 1);
+            @memset(chunk[within..], 0);
         }
     }
 };
@@ -247,8 +315,8 @@ pub const MemoryVfs = struct {
         return self.files.contains(path);
     }
 
-    /// Total bytes held across every file, which is what an in-memory database
-    /// actually costs.
+    /// Bytes this filesystem has allocated for itself, not counting anything it
+    /// has borrowed. This is what an in-memory database actually costs.
     pub fn byteCount(self: *Self) u64 {
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -256,9 +324,34 @@ pub const MemoryVfs = struct {
         var total: u64 = 0;
         var it = self.files.valueIterator();
         while (it.next()) |contents| {
-            total += contents.*.chunks.items.len * CHUNK_SIZE;
+            for (contents.*.chunks.items) |chunk| {
+                switch (chunk) {
+                    .owned => total += CHUNK_SIZE,
+                    .borrowed => {},
+                }
+            }
         }
         return total;
+    }
+
+    /// Point a file at bytes somebody else owns, without copying them.
+    ///
+    /// Each page becomes a copy of its own the first time something writes to
+    /// it, so a database that is read and lightly edited holds one copy of
+    /// nearly all of itself instead of two.
+    ///
+    /// **`data` has to outlive every file in this filesystem.** That is a real
+    /// obligation and the reason this is separate from `writeWholeFile`: the
+    /// bytes are not copied, so releasing them early leaves the database reading
+    /// freed memory.
+    pub fn borrowWholeFile(self: *Self, path: []const u8, data: []const u8) VfsError!void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var contents = self.files.get(path);
+        if (contents == null) contents = try self.createLocked(path);
+        try contents.?.truncate(0);
+        try contents.?.borrowWhole(data);
     }
 
     /// Replace a file's contents wholesale. Used to seed a database from bytes

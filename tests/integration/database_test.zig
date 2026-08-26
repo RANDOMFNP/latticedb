@@ -4280,3 +4280,124 @@ test "database: deserialize lands in memory and leaves no file" {
     defer after.deinit();
     try std.testing.expectEqual(@as(usize, 13), after.rowCount());
 }
+
+test "database: deserialize can borrow the caller's bytes" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_borrow_seed.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_borrow_seed.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_borrow_seed.ltdb-wal") catch {};
+
+    var bytes: []u8 = undefined;
+    {
+        const src = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer src.close();
+        try writeNodes(src, "Note", 60);
+        bytes = try src.serialize(allocator);
+    }
+    defer allocator.free(bytes);
+
+    // Borrowed and copied databases have to behave identically. The only
+    // difference should be how much memory the backend allocated for itself.
+    var borrowed_bytes: u64 = 0;
+    var copied_bytes: u64 = 0;
+
+    {
+        const db = try Database.deserialize(allocator, bytes, .{
+            .config = .{ .enable_fts = false, .enable_vector = false },
+            .borrow_bytes = true,
+        });
+        defer db.close();
+
+        var notes = try db.query("MATCH (n:Note) RETURN n.name AS name");
+        defer notes.deinit();
+        try std.testing.expectEqual(@as(usize, 60), notes.rowCount());
+
+        borrowed_bytes = switch (db.vfs) {
+            .memory => |*m| m.byteCount(),
+            .posix => 0,
+        };
+    }
+
+    {
+        const db = try Database.deserialize(allocator, bytes, .{
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer db.close();
+
+        var notes = try db.query("MATCH (n:Note) RETURN n.name AS name");
+        defer notes.deinit();
+        try std.testing.expectEqual(@as(usize, 60), notes.rowCount());
+
+        copied_bytes = switch (db.vfs) {
+            .memory => |*m| m.byteCount(),
+            .posix => 0,
+        };
+    }
+
+    // The saving is the point, so it is asserted rather than assumed.
+    try std.testing.expect(borrowed_bytes < copied_bytes);
+}
+
+test "database: writing a borrowed database does not touch the caller's bytes" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_borrow_cow.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_borrow_cow.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_borrow_cow.ltdb-wal") catch {};
+
+    var bytes: []u8 = undefined;
+    {
+        const src = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer src.close();
+        try writeNodes(src, "Note", 10);
+        bytes = try src.serialize(allocator);
+    }
+    defer allocator.free(bytes);
+
+    // Kept to compare against afterwards. Copy-on-write means the caller's
+    // buffer must come out of this unchanged; if a write reached through to it,
+    // the caller's idea of what it holds would silently stop being true.
+    const untouched = try allocator.dupe(u8, bytes);
+    defer allocator.free(untouched);
+
+    {
+        const db = try Database.deserialize(allocator, bytes, .{
+            .config = .{ .enable_fts = false, .enable_vector = false },
+            .borrow_bytes = true,
+        });
+        defer db.close();
+
+        var i: usize = 0;
+        while (i < 40) : (i += 1) {
+            var r = try db.query("CREATE (n:Note {name: 'added'})");
+            r.deinit();
+        }
+
+        var notes = try db.query("MATCH (n:Note) RETURN n.name AS name");
+        defer notes.deinit();
+        try std.testing.expectEqual(@as(usize, 50), notes.rowCount());
+    }
+
+    try std.testing.expectEqualSlices(u8, untouched, bytes);
+
+    // And the untouched bytes still open as the database they were.
+    const again = try Database.deserialize(allocator, bytes, .{
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer again.close();
+
+    var notes = try again.query("MATCH (n:Note) RETURN n.name AS name");
+    defer notes.deinit();
+    try std.testing.expectEqual(@as(usize, 10), notes.rowCount());
+}
