@@ -92,6 +92,7 @@ was not.
 - `read()` - Start a read-only transaction (context manager)
 - `write()` - Start a read-write transaction (context manager)
 - `query(cypher, parameters=None)` - Execute a Cypher query
+- `serialize()` - Return the whole database as bytes
 - `vector_search(vector, k=10, ef_search=64)` - k-NN vector search
 - `fts_search(query, limit=10)` - Full-text search
 - `fts_search_fuzzy(query, limit=10, max_distance=0, min_term_length=0)` - Fuzzy full-text search

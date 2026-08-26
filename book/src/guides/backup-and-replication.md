@@ -192,6 +192,7 @@ should have the same bug rather than a different one.
 | To lose no more than a few seconds of work | `replicateTo` on a timer in your application |
 | To mirror a database nothing else has open | `lattice replicate --follow` |
 | To undo a bad migration or a bad delete | `lattice restore --at=...` |
+| Many small databases kept in a bucket | `serialize` and `deserialize` |
 
 ## What this is not
 
@@ -204,6 +205,52 @@ Replicating to object storage such as S3 is not supported yet. The destination
 layout was designed with it in mind — whole files, written once, named rather
 than modified, with a manifest listing them — so a directory you replicate to
 today can be copied to a bucket by any tool you already trust.
+
+## Keeping many small databases in object storage
+
+Everything above assumes one database you want to protect. There is a different
+shape of problem that comes up just as often: not one big graph, but many small
+ones — a database per case, per tenant, per document — living in S3 or Azure Blob
+Storage, pulled down when you need one and pushed back when you are done.
+
+That works because a database here is a single file. Serializing one is reading
+that file, and there is no container format to invent:
+
+```python
+blob = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+db = latticedb.deserialize(blob)
+
+db.query("CREATE (n:Note {text: 'found something'})")
+
+s3.put_object(Bucket=bucket, Key=key, Body=db.serialize(), IfMatch=etag)
+```
+
+The same pair exists in every binding: `Database.serialize()` returns bytes, and
+`deserialize` (a package-level function in Python and TypeScript,
+`latticedb.Deserialize` in Go, `lattice_serialize` and `lattice_deserialize` in
+C) opens a database from them.
+
+Pending writes are folded in before the bytes are handed over, so what you upload
+is a complete database that needs no log beside it. You can write those bytes to
+a file and open it directly if you ever want to look at one by hand.
+
+**The engine does no networking here, on purpose.** Your application already has
+a storage client, credentials, and a retry policy somebody chose deliberately. A
+database that reimplemented all of that would be doing a worse job of something
+you already have, and it would have to hold your cloud credentials to do it.
+
+### Two workers, one blob
+
+This pattern has a failure mode worth planning for, and it is not in the
+database. If two workers read the same object, change it, and write it back, the
+second one silently erases the first. Nothing reports an error, and nothing looks
+wrong until somebody notices missing data.
+
+That is what `IfMatch` is doing in the example above. Every major provider
+supports some form of conditional write keyed on an entity tag or generation
+number, and the write fails instead of destroying the other worker's changes.
+What to do when it fails — retry, merge, queue — is a decision only your
+application can make.
 
 ## Related reading
 

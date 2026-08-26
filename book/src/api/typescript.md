@@ -118,6 +118,7 @@ was not.
 
 - `await db.open()` - Open the database connection
 - `await db.close()` - Close the database connection
+- `db.serialize()` - Return the whole database as bytes
 - `await db.read(fn)` - Execute a read-only transaction
 - `await db.write(fn)` - Execute a read-write transaction
 - `await db.query(cypher, params?)` - Execute a Cypher query
