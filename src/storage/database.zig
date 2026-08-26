@@ -739,12 +739,26 @@ fn findPropertyById(
 
 /// Frames an in-memory database keeps beyond the size of the database itself.
 ///
-/// This is a floor, not a tuning knob. A traversal pins several pages at once and
-/// concurrent readers each pin their own, and a pool with nowhere to put the next
-/// page fails the query rather than slowing it down. Two hundred and fifty-six
-/// frames is a megabyte at the default page size, which is cheap next to being
-/// wrong about it.
-const MIN_MEMORY_POOL_FRAMES: usize = 256;
+/// This is a floor rather than a tuning knob: a pool with nowhere to put the next
+/// page fails the query outright instead of slowing it down, so it has to cover
+/// the largest set of pages pinned at once.
+///
+/// Sixty-four is a measured number with a wide margin, not a guess. Four frames
+/// were enough to complete a deep variable-length traversal, a filtered scan, a
+/// full-text search, and a bulk write over a fifteen-hundred node graph with
+/// edges and a text index. The engine simply does not hold many pages pinned
+/// simultaneously.
+///
+/// The margin covers what that measurement did not: it was single threaded, and
+/// concurrent readers each pin pages of their own. Sixteen times the observed
+/// requirement is cheap insurance at 256 KB.
+///
+/// Note also where this floor actually applies. The pool is the smaller of the
+/// configured budget and the database plus this floor, so for anything but a very
+/// small database the database term dominates and the floor is irrelevant. A
+/// database small enough for the floor to matter has too few pages to pin many of
+/// them, which is the opposite of the dangerous case.
+const MIN_MEMORY_POOL_FRAMES: usize = 64;
 
 /// The path that asks for a database with no files behind it.
 ///

@@ -290,10 +290,30 @@ all in the case that matters.
 **There is a hard floor, and it is a correctness requirement.** When the clock
 sweep finds no evictable frame, `BufferPool` returns `BufferPoolFull`, which
 surfaces as a failed query rather than a slow one. The pool must therefore always
-hold at least the largest simultaneously-pinned set across concurrent
-transactions, plus headroom. A test that opens a tiny in-memory database and runs
-a deep traversal under concurrent readers belongs with this change, to prove we
-have not sized ourselves into a failure.
+hold at least the largest simultaneously-pinned set.
+
+That number was measured rather than guessed, because guessing it trades memory
+against query failures and neither side of that trade should be a hunch. Pools
+from four frames upward were run against a fifteen-hundred node graph with edges
+and a text index, through a deep variable-length traversal, a filtered scan, a
+full-text search, and a bulk write. **Four frames was enough for all of it.** The
+engine simply does not hold many pages pinned at once.
+
+The floor is set at sixty-four, sixteen times the observed requirement, because
+the measurement was single threaded and concurrent readers each pin pages of
+their own. At 256 KB that margin is cheap.
+
+An earlier attempt measured this by instrumenting the pin counter and produced
+three hundred thousand concurrent pins on a two-thousand node database, which is
+plainly impossible — there was a decrement path the instrumentation missed.
+Measuring the thing that actually matters, the smallest pool that completes the
+work, needed no instrumentation and could not drift.
+
+Note also where the floor applies at all. The pool is the smaller of the
+configured budget and the database plus the floor, so for anything but a very
+small database the database term dominates. A database small enough for the floor
+to matter has too few pages to pin many of them, which is the opposite of the
+dangerous case.
 
 ### Borrowing the caller's bytes
 

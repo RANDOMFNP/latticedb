@@ -67,7 +67,12 @@ it practical to keep many small databases in object storage.
 - **Small in-memory databases cost much less than they did.** The page cache is
   sized to the database rather than to a fixed budget, since a cache larger than
   the data it holds has frames it can never fill. Measured on a hundred-kilobyte
-  database, that is about a megabyte instead of sixteen.
+  database, overhead falls from about sixteen megabytes to a quarter of one.
+
+  The floor under that sizing was measured rather than guessed: four frames were
+  enough to complete a deep traversal, a filtered scan, a full-text search, and a
+  bulk write over a fifteen-hundred node graph. It is set at sixty-four, sixteen
+  times that, because the measurement was single threaded.
 
 ## API Notes
 

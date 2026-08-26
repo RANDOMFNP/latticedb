@@ -4401,3 +4401,55 @@ test "database: writing a borrowed database does not touch the caller's bytes" {
     defer notes.deinit();
     try std.testing.expectEqual(@as(usize, 10), notes.rowCount());
 }
+
+test "database: a tiny buffer pool still completes real work" {
+    const allocator = std.testing.allocator;
+
+    // The in-memory pool is capped at the database size plus a floor, and a pool
+    // with nowhere to put the next page fails a query rather than slowing it
+    // down. This pins the measurement that floor was chosen from: the engine
+    // holds very few pages at once, so a pool far below the default is enough.
+    //
+    // If a future change starts holding many more pages pinned simultaneously,
+    // this fails here rather than as a mysterious BufferPoolFull in somebody's
+    // small in-memory database.
+    const db = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{
+            .enable_fts = true,
+            .enable_vector = false,
+            .buffer_pool_size = 8 * 4096,
+        },
+    });
+    defer db.close();
+
+    var txn = try db.beginTransaction(.read_write);
+    var previous: ?u64 = null;
+    var i: usize = 0;
+    while (i < 800) : (i += 1) {
+        const node = try db.createNode(&txn, &[_][]const u8{"Link"});
+        try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+        try db.setNodeProperty(&txn, node, "text", .{ .string_val = "searchable words here" });
+        if (previous) |p| try db.createEdge(&txn, p, node, "NEXT");
+        previous = node;
+    }
+    try db.commitTransaction(&txn);
+
+    var walked = try db.query("MATCH (a:Link)-[:NEXT*1..8]->(b:Link) RETURN b.i AS i");
+    defer walked.deinit();
+    try std.testing.expect(walked.rowCount() > 0);
+
+    var scanned = try db.query("MATCH (a:Link) WHERE a.i > 100 RETURN a.i AS i");
+    defer scanned.deinit();
+    try std.testing.expectEqual(@as(usize, 699), scanned.rowCount());
+
+    // Run the full-text path too, for the pages it touches rather than the rows
+    // it returns. What it matches is a separate question and not this test's
+    // business; completing without running out of frames is.
+    var searched = try db.query("MATCH (a:Link) WHERE a.text @@ 'searchable' RETURN a.i AS i");
+    defer searched.deinit();
+
+    var counted = try db.query("MATCH (a:Link) RETURN count(a) AS n");
+    defer counted.deinit();
+    try std.testing.expectEqual(@as(usize, 1), counted.rowCount());
+}

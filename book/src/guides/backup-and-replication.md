@@ -273,8 +273,9 @@ second process that could reach it.
 It is also cheaper than you might expect for small databases. The page cache is
 sized to the database rather than to a fixed budget, because a cache bigger than
 the data it holds has frames it can never fill. A hundred-kilobyte database costs
-about a megabyte in memory rather than the sixteen a file-backed one would
-reserve.
+around a quarter of a megabyte in memory, rather than the sixteen a file-backed
+one would reserve. If you are keeping many small databases open at once, that
+difference is most of what you pay.
 
 ### Loading without a second copy
 
