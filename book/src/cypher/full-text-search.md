@@ -10,7 +10,32 @@ WHERE d.content @@ "neural networks"
 RETURN d.title
 ```
 
-This searches all nodes that have had their text indexed with `fts_index()` and returns those matching the search terms.
+This searches all nodes that have had their text indexed, and returns those
+matching the search terms.
+
+## Two things that surprise people
+
+**Setting a string property does not index it.** Text has to be handed to the
+index on purpose, with `fts_index()` in the CLI or `ftsIndexDocument` from code.
+A node with a `content` property that was never indexed will never match `@@`, and
+nothing warns you — the query simply returns no rows.
+
+**The property name on the left of `@@` is not used.** The index stores one
+document per node rather than one per property, so `d.content @@ "..."` means
+"does this node's indexed text match", not "does this node's `content` property
+match". Every one of these behaves identically:
+
+```cypher
+WHERE d.content @@ "neural networks"
+WHERE d.title   @@ "neural networks"
+WHERE d.nonexistent_property @@ "neural networks"
+```
+
+That is worth knowing in both directions. A node whose indexed text mentions
+neural networks matches even if the property you named says something completely
+different, and a misspelled property name still works rather than telling you
+about the mistake. Write the property that holds the text you indexed, because it
+tells the next reader what you meant, but do not expect it to be checked.
 
 ## How It Works
 

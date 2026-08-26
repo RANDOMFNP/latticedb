@@ -13,6 +13,11 @@ LatticeDB's full-text search uses:
 
 ## Indexing Text
 
+Text has to be handed to the index on purpose. Storing a string in a property does
+not index it, so a node with a `body` property that was never indexed will never
+turn up in a search, and nothing warns you about it — the search just comes back
+empty.
+
 Index text content on a node within a write transaction:
 
 ```python
@@ -53,9 +58,17 @@ for (const r of results) {
 
 ```cypher
 MATCH (d:Document)
-WHERE d.content @@ "quick fox"
+WHERE d.text @@ "quick fox"
 RETURN d.title
 ```
+
+The property name on the left of `@@` is not actually used. The index holds one
+document per node rather than one per property, so this reads as "does this
+node's indexed text match" no matter which property you name. `d.text`,
+`d.title`, and `d.spelled_wrong` all behave the same way.
+
+Name the property that holds the text you indexed anyway, because it tells the
+next person what you meant. Just do not expect a mistake in it to be caught.
 
 ## Fuzzy Search
 
