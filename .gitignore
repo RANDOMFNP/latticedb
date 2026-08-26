@@ -62,3 +62,9 @@ test_*.db
 # Release build artifacts (keep dist/*.sh scripts tracked)
 dist/build/
 dist/release/
+
+# A bug that makes the engine treat ":memory:" as an ordinary path creates real
+# files with this name. Ignoring them keeps one from being committed by accident
+# while somebody is chasing that bug.
+:memory:
+:memory:-wal

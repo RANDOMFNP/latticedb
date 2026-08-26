@@ -20,6 +20,7 @@ const NULL_PAGE = types.NULL_PAGE;
 // Storage layer
 const vfs_mod = lattice.storage.vfs;
 const PosixVfs = vfs_mod.PosixVfs;
+const memory_vfs_mod = lattice.storage.memory_vfs;
 const Vfs = vfs_mod.Vfs;
 
 const page_mod = lattice.storage.page;
@@ -736,12 +737,63 @@ fn findPropertyById(
     return null;
 }
 
+/// Frames an in-memory database keeps beyond the size of the database itself.
+///
+/// This is a floor, not a tuning knob. A traversal pins several pages at once and
+/// concurrent readers each pin their own, and a pool with nowhere to put the next
+/// page fails the query rather than slowing it down. Two hundred and fifty-six
+/// frames is a megabyte at the default page size, which is cheap next to being
+/// wrong about it.
+const MIN_MEMORY_POOL_FRAMES: usize = 256;
+
+/// The path that asks for a database with no files behind it.
+///
+/// A path rather than an option because every binding already passes a path
+/// string straight through, so `Database(":memory:")` works everywhere without a
+/// single binding change. An option would mean another versioned C struct and
+/// four bindings updated for the same capability.
+pub const MEMORY_PATH = ":memory:";
+
+pub fn isMemoryPath(path: []const u8) bool {
+    return std.mem.eql(u8, path, MEMORY_PATH);
+}
+
+/// Where a database keeps its bytes.
+///
+/// Held by value so the database owns its storage outright. Both arms present
+/// the same `Vfs` interface, and everything above this point is written against
+/// that interface rather than either arm.
+pub const Backend = union(enum) {
+    posix: PosixVfs,
+    memory: memory_vfs_mod.MemoryVfs,
+
+    pub fn vfs(self: *Backend) vfs_mod.Vfs {
+        return switch (self.*) {
+            .posix => |*p| p.vfs(),
+            .memory => |*m| m.vfs(),
+        };
+    }
+
+    pub fn deinit(self: *Backend) void {
+        switch (self.*) {
+            // A posix VFS holds no state of its own; the files it opened were
+            // closed by whoever opened them.
+            .posix => {},
+            .memory => |*m| m.deinit(),
+        }
+    }
+};
+
 /// Central database coordinator
 pub const Database = struct {
     allocator: Allocator,
 
     // Storage layer (owned, must deinit in reverse order)
-    vfs: PosixVfs,
+    //
+    // Owned by value rather than supplied by the caller: the `Vfs` interface is a
+    // fat pointer, so a caller-supplied backend would have to outlive the
+    // database, which is a lifetime rule nobody should have to think about.
+    vfs: Backend,
     page_manager: PageManager,
     buffer_pool: BufferPool,
     wal: ?WalManager,
@@ -800,8 +852,24 @@ pub const Database = struct {
 
     const Self = @This();
 
-    /// Open or create a database
+    /// Open or create a database.
+    ///
+    /// Pass `:memory:` as the path for a database with no files behind it.
     pub fn open(allocator: Allocator, path: []const u8, options: OpenOptions) DatabaseError!*Self {
+        return openWithBackend(allocator, path, options, null);
+    }
+
+    /// Open a database, optionally against a backend that already holds it.
+    ///
+    /// `deserialize` uses this to hand over a memory backend it has already
+    /// filled with bytes, so the engine opens a complete database rather than
+    /// creating an empty one and being written into afterwards.
+    fn openWithBackend(
+        allocator: Allocator,
+        path: []const u8,
+        options: OpenOptions,
+        prepared: ?Backend,
+    ) DatabaseError!*Self {
         if (!page_manager.isValidPageSize(options.page_size)) {
             return DatabaseError.InvalidArgument;
         }
@@ -822,8 +890,12 @@ pub const Database = struct {
         self.path = allocator.dupe(u8, path) catch return DatabaseError.OutOfMemory;
         errdefer allocator.free(self.path);
 
-        // 1. Initialize VFS
-        self.vfs = PosixVfs.init(allocator);
+        // 1. Storage backend
+        self.vfs = prepared orelse if (isMemoryPath(path))
+            Backend{ .memory = memory_vfs_mod.MemoryVfs.init(allocator) }
+        else
+            Backend{ .posix = PosixVfs.init(allocator) };
+        errdefer self.vfs.deinit();
 
         // 2. Open/create PageManager
         self.page_manager = PageManager.init(allocator, self.vfs.vfs(), path, .{
@@ -845,7 +917,26 @@ pub const Database = struct {
         errdefer self.page_manager.deinit();
 
         // 3. Initialize BufferPool (auto-scales based on enabled features)
-        const effective_pool_size = options.config.effectiveBufferPoolSize();
+        // An in-memory database never gains from a pool larger than itself: every
+        // page already fits, so the extra frames can never be filled. Capping it
+        // is strictly better there — the hit rate stays at a hundred per cent and
+        // nothing is ever evicted — and a no-op for a database bigger than the
+        // budget, where the minimum picks the default.
+        //
+        // The floor matters more than the cap. When the clock sweep finds nothing
+        // evictable the pool returns BufferPoolFull, which surfaces as a failed
+        // query rather than a slow one, so there has to be room for the largest
+        // set of pages pinned at once across concurrent transactions.
+        const configured_pool_size = options.config.effectiveBufferPoolSize();
+        const effective_pool_size = switch (self.vfs) {
+            .posix => configured_pool_size,
+            .memory => blk: {
+                const database_bytes = self.page_manager.pageCount() *
+                    @as(usize, self.page_manager.getPageSize());
+                const headroom = MIN_MEMORY_POOL_FRAMES * @as(usize, self.page_manager.getPageSize());
+                break :blk @min(configured_pool_size, database_bytes + headroom);
+            },
+        };
         self.buffer_pool = BufferPool.init(allocator, &self.page_manager, effective_pool_size) catch {
             return DatabaseError.BufferPoolFull;
         };
@@ -869,7 +960,9 @@ pub const Database = struct {
                 self.page_manager.getPageSize(),
             ) catch |err| blk: {
                 if (opened_new_database and options.create and shouldResetWalForNewDatabase(err)) {
-                    @import("compat").fs.cwd().deleteFile(wal_path) catch return mapWalInitError(err);
+                    // Through the VFS, so a database with no files behind it does
+                    // not try to remove a real one called ":memory:-wal".
+                    self.vfs.vfs().delete(wal_path) catch return mapWalInitError(err);
                     break :blk WalManager.initWithFrameSize(
                         allocator,
                         self.vfs.vfs(),
@@ -1181,14 +1274,21 @@ pub const Database = struct {
         };
         defer self.allocator.free(temp_path);
 
+        // The source comes from wherever this database lives; the destination is
+        // a path on a real disk by definition. For a file-backed database those
+        // are the same filesystem, but for an in-memory one they are not, and
+        // writing the backup into memory and then renaming a file that was never
+        // created is not a useful thing to do.
         const vfs_handle = self.vfs.vfs();
+        var dest_backend = PosixVfs.init(self.allocator);
+        const dest_vfs = dest_backend.vfs();
 
         var source = vfs_handle.open(self.path, .{ .read = true }) catch return DatabaseError.IoError;
         defer source.close();
 
         const total_bytes = source.size() catch return DatabaseError.IoError;
 
-        var dest = vfs_handle.open(temp_path, .{
+        var dest = dest_vfs.open(temp_path, .{
             .read = true,
             .write = true,
             .create = true,
@@ -1199,7 +1299,7 @@ pub const Database = struct {
         {
             errdefer {
                 dest.close();
-                vfs_handle.delete(temp_path) catch {};
+                dest_vfs.delete(temp_path) catch {};
             }
 
             const buffer = self.allocator.alloc(u8, 1024 * 1024) catch return DatabaseError.OutOfMemory;
@@ -1218,8 +1318,12 @@ pub const Database = struct {
         dest.close();
 
         // Only now does a file appear at the path the caller asked for.
+        //
+        // Renaming is a real filesystem operation and the VFS has no equivalent,
+        // which is fine: a backup writes to a path on disk whatever the source
+        // database is stored in. The temporary file is a real file either way.
         @import("compat").fs.cwd().rename(temp_path, dest_path) catch {
-            vfs_handle.delete(temp_path) catch {};
+            dest_vfs.delete(temp_path) catch {};
             return DatabaseError.IoError;
         };
 
@@ -1278,16 +1382,19 @@ pub const Database = struct {
         return bytes;
     }
 
-    /// Where `deserialize` should put the bytes while it works.
+    /// How `deserialize` should hold the database it opens.
     pub const DeserializeOptions = struct {
         config: DatabaseConfig = .{},
-        /// Directory to hold the file the bytes are written to. Defaults to
-        /// `/tmp`.
+        /// Keep the database in memory rather than writing it to a file.
         ///
-        /// This exists because the engine still needs a real file to open. Once
-        /// databases can live in memory the file goes away and so does this.
+        /// This is the point of the whole exercise for anyone pulling small
+        /// databases out of object storage: nothing touches the local disk.
+        in_memory: bool = true,
+        /// Directory to hold the file the bytes are written to, when
+        /// `in_memory` is false. Defaults to `/tmp`.
         temp_dir: []const u8 = "/tmp",
-        /// Take a lock on the materialised file. See `OpenOptions.lock`.
+        /// Take a lock on the materialised file. Ignored in memory, where there
+        /// is no second process to exclude. See `OpenOptions.lock`.
         lock: bool = true,
     };
 
@@ -1312,6 +1419,8 @@ pub const Database = struct {
         if (bytes.len < types.DEFAULT_PAGE_SIZE) return DatabaseError.InvalidDatabase;
         const magic = std.mem.readInt(u32, bytes[0..4], .little);
         if (magic != types.MAGIC_NUMBER) return DatabaseError.InvalidDatabase;
+
+        if (options.in_memory) return deserializeInMemory(allocator, bytes, options);
 
         // A name nothing else will pick, so two of these can run at once and a
         // leftover from a crash cannot be mistaken for a live one.
@@ -1355,6 +1464,33 @@ pub const Database = struct {
             .lock = options.lock,
         });
         db.owns_backing_file = true;
+        return db;
+    }
+
+    /// Open bytes as a database held entirely in memory.
+    ///
+    /// The backend is seeded before the database is opened, so the engine finds a
+    /// complete file waiting for it and takes its ordinary path from there.
+    fn deserializeInMemory(
+        allocator: Allocator,
+        bytes: []const u8,
+        options: DeserializeOptions,
+    ) DatabaseError!*Self {
+        var backend = memory_vfs_mod.MemoryVfs.init(allocator);
+        // Only until the backend is handed over; from that point the database
+        // owns it and releases it on close or on a failed open.
+        var handed_over = false;
+        errdefer if (!handed_over) backend.deinit();
+
+        backend.writeWholeFile(MEMORY_PATH, bytes) catch return DatabaseError.OutOfMemory;
+
+        handed_over = true;
+        const db = try Self.openWithBackend(
+            allocator,
+            MEMORY_PATH,
+            .{ .create = false, .config = options.config, .lock = false },
+            Backend{ .memory = backend },
+        );
         return db;
     }
 
@@ -1445,7 +1581,9 @@ pub const Database = struct {
         // 2. Page manager
         self.page_manager.deinit();
 
-        // 1. VFS (no explicit deinit needed)
+        // 1. Storage backend. A memory backend holds every byte of the database,
+        //    so this is where an in-memory database actually goes away.
+        self.vfs.deinit();
 
         // A file that exists only to back this handle goes when the handle does.
         // Done after everything above, so the log has been checkpointed and both

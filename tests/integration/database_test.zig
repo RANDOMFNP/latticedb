@@ -4116,3 +4116,167 @@ test "database: deserializing something that is not a database fails cleanly" {
         Database.deserialize(allocator, &[_]u8{}, .{}),
     );
 }
+
+test "database: an in-memory database touches no files" {
+    const allocator = std.testing.allocator;
+
+    const db = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    try writeNodes(db, "Person", 200);
+
+    var created = try db.query("CREATE (c:Company {name: 'Acme'})");
+    created.deinit();
+
+    var people = try db.query("MATCH (p:Person) RETURN p.name AS name");
+    defer people.deinit();
+    try std.testing.expectEqual(@as(usize, 200), people.rowCount());
+
+    // The whole point is that nothing lands on disk, so check rather than
+    // assume. A path is a path, and it would be easy to create a real file
+    // literally called ":memory:" without noticing.
+    try std.testing.expectError(
+        error.FileNotFound,
+        @import("compat").fs.cwd().access(":memory:", .{}),
+    );
+    try std.testing.expectError(
+        error.FileNotFound,
+        @import("compat").fs.cwd().access(":memory:-wal", .{}),
+    );
+}
+
+test "database: an in-memory database keeps its transactions" {
+    const allocator = std.testing.allocator;
+
+    const db = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    // Turning the log off to save allocations would have cost transactions
+    // entirely, which is why it stays on in memory.
+    var txn = try db.beginTransaction(.read_write);
+    const node = try db.createNode(&txn, &[_][]const u8{"Person"});
+    try db.setNodeProperty(&txn, node, "name", .{ .string_val = "rolled back" });
+    try db.abortTransaction(&txn);
+
+    var result = try db.query("MATCH (p:Person) RETURN p.name AS name");
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), result.rowCount());
+}
+
+test "database: two in-memory databases cannot see each other" {
+    const allocator = std.testing.allocator;
+
+    const a = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer a.close();
+
+    const b = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer b.close();
+
+    try writeNodes(a, "Person", 5);
+
+    // Each holds its own filesystem, so the shared path name means nothing.
+    // Sharing one would make every in-memory database in a process the same
+    // database, which is the kind of thing nobody discovers until production.
+    var seen = try b.query("MATCH (p:Person) RETURN p.name AS name");
+    defer seen.deinit();
+    try std.testing.expectEqual(@as(usize, 0), seen.rowCount());
+}
+
+test "database: a small in-memory database survives a deep traversal" {
+    const allocator = std.testing.allocator;
+
+    // The buffer pool is capped to the size of an in-memory database, and a pool
+    // with nowhere to put the next page fails the query rather than slowing it
+    // down. This is the test that says the floor is high enough.
+    const db = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    // A chain long enough that walking it pins pages well beyond the handful a
+    // single lookup needs.
+    var txn = try db.beginTransaction(.read_write);
+    var previous: ?u64 = null;
+    var i: usize = 0;
+    while (i < 300) : (i += 1) {
+        const node = try db.createNode(&txn, &[_][]const u8{"Link"});
+        try db.setNodeProperty(&txn, node, "i", .{ .int_val = @intCast(i) });
+        if (previous) |p| {
+            try db.createEdge(&txn, p, node, "NEXT");
+        }
+        previous = node;
+    }
+    try db.commitTransaction(&txn);
+
+    var walked = try db.query("MATCH (a:Link)-[:NEXT*1..6]->(b:Link) RETURN b.i AS i");
+    defer walked.deinit();
+    try std.testing.expect(walked.rowCount() > 0);
+
+    var all = try db.query("MATCH (a:Link) RETURN a.i AS i");
+    defer all.deinit();
+    try std.testing.expectEqual(@as(usize, 300), all.rowCount());
+}
+
+test "database: deserialize lands in memory and leaves no file" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_inmem_seed.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_inmem_seed.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_inmem_seed.ltdb-wal") catch {};
+
+    var bytes: []u8 = undefined;
+    {
+        const src = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer src.close();
+        try writeNodes(src, "Note", 12);
+        bytes = try src.serialize(allocator);
+    }
+    defer allocator.free(bytes);
+
+    const db = try Database.deserialize(allocator, bytes, .{
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    // No temporary file, which is the thing somebody pulling databases out of
+    // object storage asked not to have.
+    try std.testing.expectEqualStrings(":memory:", db.path);
+
+    var notes = try db.query("MATCH (n:Note) RETURN n.name AS name");
+    defer notes.deinit();
+    try std.testing.expectEqual(@as(usize, 12), notes.rowCount());
+
+    // Still writable, and still serialisable, so the round trip closes.
+    var added = try db.query("CREATE (n:Note {name: 'added'})");
+    added.deinit();
+
+    const again = try db.serialize(allocator);
+    defer allocator.free(again);
+
+    const reopened = try Database.deserialize(allocator, again, .{
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer reopened.close();
+
+    var after = try reopened.query("MATCH (n:Note) RETURN n.name AS name");
+    defer after.deinit();
+    try std.testing.expectEqual(@as(usize, 13), after.rowCount());
+}

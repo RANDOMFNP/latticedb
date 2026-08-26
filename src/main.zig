@@ -13,6 +13,7 @@ pub const core = struct {
 // Storage modules
 pub const storage = struct {
     pub const vfs = @import("storage/vfs.zig");
+    pub const memory_vfs = @import("storage/memory_vfs.zig");
     pub const page = @import("storage/page.zig");
     pub const page_manager = @import("storage/page_manager.zig");
     pub const buffer_pool = @import("storage/buffer_pool.zig");
