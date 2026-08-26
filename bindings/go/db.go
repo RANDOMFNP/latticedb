@@ -28,6 +28,7 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 		EnableAdjacencyCache: opts.EnableAdjacencyCache,
 		EnableVector:         opts.vectorsEnabled(),
 		VectorDimensions:     opts.VectorDimensions,
+		Lock:                 !opts.DisableLock,
 	})
 	if err != nil {
 		return nil, wrapError(err)

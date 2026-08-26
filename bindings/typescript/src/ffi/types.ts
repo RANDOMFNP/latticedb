@@ -25,6 +25,7 @@ export const enum LatticeErrorCode {
   OutOfMemory = -13,
   Unsupported = -14,
   ValueTooLarge = -15,
+  DatabaseLocked = -16,
 }
 
 /**

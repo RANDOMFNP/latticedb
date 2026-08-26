@@ -21,6 +21,7 @@ from latticedb._bindings import (
     OpenOptions,
     OpenOptionsV2,
     OpenOptionsV3,
+    OpenOptionsV4,
     LATTICE_OK,
     LATTICE_ERROR_IO,
     LATTICE_ERROR_UNSUPPORTED,
@@ -63,6 +64,7 @@ class Database:
         enable_vectors: Optional[bool] = None,
         enable_vector: Optional[bool] = None,
         vector_dimensions: int = 128,
+        lock: bool = True,
     ) -> None:
         """
         Open a Lattice database.
@@ -77,6 +79,12 @@ class Database:
             enable_vectors: Enable vector storage and indexing.
             enable_vector: Compatibility alias for ``enable_vectors``.
             vector_dimensions: Dimension of vectors when vector support is enabled.
+            lock: Take a lock on the file so two processes cannot tread on each
+                other. A read-write handle takes it exclusively and a read-only
+                handle shares it, so opening raises
+                :class:`LatticeDatabaseLockedError` rather than waiting. Turn this
+                off only where locking does not work, such as some network
+                filesystems; it does not make concurrent access safe.
         """
         self._path = Path(path)
         self._create = create
@@ -94,6 +102,7 @@ class Database:
             enable_vectors if enable_vectors is not None else bool(enable_vector)
         )
         self._vector_dimensions = vector_dimensions
+        self._lock = lock
         self._handle: Optional[Any] = None
         self._closed = False
 
@@ -113,7 +122,25 @@ class Database:
 
         lib = get_lib()
         db_ptr = c_void_p()
-        if getattr(lib, "_has_lattice_open_v3", False):
+        if getattr(lib, "_has_lattice_open_v4", False):
+            opts_v4 = OpenOptionsV4(
+                struct_size=ctypes.sizeof(OpenOptionsV4),
+                create=self._create,
+                read_only=self._read_only,
+                cache_size_mb=self._cache_size_mb,
+                page_size=4096,
+                enable_vector=self._enable_vectors,
+                vector_dimensions=self._vector_dimensions,
+                enable_wal=self._enable_wal,
+                enable_adjacency_cache=self._enable_adjacency_cache,
+                lock=self._lock,
+            )
+            code = lib._lib.lattice_open_v4(
+                str(self._path).encode("utf-8"),
+                byref(opts_v4),
+                byref(db_ptr),
+            )
+        elif getattr(lib, "_has_lattice_open_v3", False):
             opts_v3 = OpenOptionsV3(
                 struct_size=ctypes.sizeof(OpenOptionsV3),
                 create=self._create,

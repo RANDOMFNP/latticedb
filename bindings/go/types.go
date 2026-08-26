@@ -24,6 +24,15 @@ type OpenOptions struct {
 	// Deprecated: use EnableVectors. Earliest removal is v0.6.0.
 	EnableVector     bool
 	VectorDimensions uint16
+	// DisableLock opens without taking a lock on the file. A locked database
+	// normally refuses a second process, which is what stops two of them
+	// corrupting it; this exists for filesystems where locking does not work, and
+	// it does not make concurrent access safe.
+	//
+	// It is phrased as a negative for the same reason as DisableWAL: a Go bool
+	// cannot tell an omitted field from a deliberate false, and locking has to
+	// stay on when the caller says nothing.
+	DisableLock bool
 }
 
 type CreateNodeOptions struct {

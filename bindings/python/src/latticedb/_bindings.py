@@ -132,6 +132,7 @@ LATTICE_ERROR_CHECKSUM = -12
 LATTICE_ERROR_OUT_OF_MEMORY = -13
 LATTICE_ERROR_UNSUPPORTED = -14
 LATTICE_ERROR_VALUE_TOO_LARGE = -15
+LATTICE_ERROR_DATABASE_LOCKED = -16
 
 
 # Exception classes
@@ -181,6 +182,16 @@ class LatticeTxnAbortedError(LatticeError):
 
 class LatticeLockTimeoutError(LatticeError):
     """Lock acquisition timed out."""
+
+    pass
+
+
+class LatticeDatabaseLockedError(LatticeError):
+    """The database is open in another process.
+
+    Distinct from :class:`LatticeLockTimeoutError`, which means something inside
+    this process is already writing.
+    """
 
     pass
 
@@ -262,6 +273,7 @@ _ERROR_MAP = {
     LATTICE_ERROR_OUT_OF_MEMORY: LatticeOutOfMemoryError,
     LATTICE_ERROR_UNSUPPORTED: LatticeUnsupportedError,
     LATTICE_ERROR_VALUE_TOO_LARGE: LatticeValueTooLargeError,
+    LATTICE_ERROR_DATABASE_LOCKED: LatticeDatabaseLockedError,
 }
 
 
@@ -418,6 +430,21 @@ class OpenOptionsV3(Structure):
     ]
 
 
+class OpenOptionsV4(Structure):
+    _fields_ = [
+        ("struct_size", c_size_t),
+        ("create", c_bool),
+        ("read_only", c_bool),
+        ("cache_size_mb", c_uint32),
+        ("page_size", c_uint32),
+        ("enable_vector", c_bool),
+        ("vector_dimensions", c_uint16),
+        ("enable_wal", c_bool),
+        ("enable_adjacency_cache", c_bool),
+        ("lock", c_bool),
+    ]
+
+
 # Type aliases
 LatticeDatabase = c_void_p
 LatticeTxn = c_void_p
@@ -458,6 +485,7 @@ class LatticeLib:
         self._lib = ctypes.CDLL(str(lib_path))
         self._has_lattice_open_v2 = hasattr(self._lib, "lattice_open_v2")
         self._has_lattice_open_v3 = hasattr(self._lib, "lattice_open_v3")
+        self._has_lattice_open_v4 = hasattr(self._lib, "lattice_open_v4")
         self._setup_functions()
 
     def _setup_functions(self) -> None:
@@ -485,6 +513,14 @@ class LatticeLib:
                 POINTER(LatticeDatabase),
             ]
             self._lib.lattice_open_v3.restype = c_int
+
+        if self._has_lattice_open_v4:
+            self._lib.lattice_open_v4.argtypes = [
+                c_char_p,
+                POINTER(OpenOptionsV4),
+                POINTER(LatticeDatabase),
+            ]
+            self._lib.lattice_open_v4.restype = c_int
 
         # lattice_close
         self._lib.lattice_close.argtypes = [LatticeDatabase]

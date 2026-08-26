@@ -26,6 +26,7 @@ const (
 	ErrorOutOfMemory     ErrorCode = ErrorCode(cgobridge.ErrorOutOfMemory)
 	ErrorUnsupported     ErrorCode = ErrorCode(cgobridge.ErrorUnsupported)
 	ErrorValueTooLarge   ErrorCode = ErrorCode(cgobridge.ErrorValueTooLarge)
+	ErrorDatabaseLocked  ErrorCode = ErrorCode(cgobridge.ErrorDatabaseLocked)
 )
 
 type QueryErrorStage int

@@ -30,6 +30,7 @@ const (
 	ErrorOutOfMemory     ErrorCode = -13
 	ErrorUnsupported     ErrorCode = -14
 	ErrorValueTooLarge   ErrorCode = -15
+	ErrorDatabaseLocked  ErrorCode = -16
 )
 
 type QueryErrorStage int
@@ -75,6 +76,12 @@ type OpenOptions struct {
 	EnableAdjacencyCache bool
 	EnableVector         bool
 	VectorDimensions     uint16
+	// Lock takes a lock on the file so two processes cannot tread on each other.
+	// A read-write handle takes it exclusively and a read-only handle shares it,
+	// so Open returns an error rather than waiting. Turning it off is for
+	// filesystems where locking does not work; it does not make concurrent
+	// access safe.
+	Lock                 bool
 }
 
 type QueryResult struct {
@@ -156,8 +163,8 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 	cPath := C.CString(path)
 	defer C.free(unsafe.Pointer(cPath))
 
-	cOpts := C.lattice_open_options_v3{
-		struct_size:            C.size_t(unsafe.Sizeof(C.lattice_open_options_v3{})),
+	cOpts := C.lattice_open_options_v4{
+		struct_size:            C.size_t(unsafe.Sizeof(C.lattice_open_options_v4{})),
 		create:                 C.bool(opts.Create),
 		read_only:              C.bool(opts.ReadOnly),
 		cache_size_mb:          C.uint32_t(opts.CacheSizeMB),
@@ -166,10 +173,11 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 		vector_dimensions:      C.uint16_t(opts.VectorDimensions),
 		enable_wal:             C.bool(opts.EnableWAL),
 		enable_adjacency_cache: C.bool(opts.EnableAdjacencyCache),
+		lock:                   C.bool(opts.Lock),
 	}
 
 	var db *C.lattice_database
-	if err := errorFromCode(ErrorCode(C.lattice_open_v3(cPath, &cOpts, &db))); err != nil {
+	if err := errorFromCode(ErrorCode(C.lattice_open_v4(cPath, &cOpts, &db))); err != nil {
 		return nil, err
 	}
 

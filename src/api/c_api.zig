@@ -320,6 +320,9 @@ pub const lattice_error = enum(c_int) {
     err_out_of_memory = -13,
     err_unsupported = -14,
     err_value_too_large = -15,
+    /// Another process holds the database. Distinct from err_lock_timeout,
+    /// which is about a second writer inside this process.
+    err_database_locked = -16,
 };
 
 /// Query diagnostic stage for prepared query execution failures.
@@ -351,6 +354,7 @@ fn mapDatabaseError(err: DatabaseError) lattice_error {
         DatabaseError.TransactionsNotEnabled => .err_invalid_arg,
         DatabaseError.ValueTooLarge => .err_value_too_large,
         DatabaseError.MissingIndex => .err_unsupported,
+        DatabaseError.DatabaseLocked => .err_database_locked,
     };
 }
 
@@ -498,6 +502,24 @@ pub const lattice_open_options_v3 = extern struct {
     vector_dimensions: u16 = 128,
     enable_wal: bool = true,
     enable_adjacency_cache: bool = false,
+};
+
+/// Versioned open options that can turn the file lock off.
+pub const lattice_open_options_v4 = extern struct {
+    struct_size: usize = @sizeOf(lattice_open_options_v4),
+    create: bool = false,
+    read_only: bool = false,
+    cache_size_mb: u32 = 100,
+    page_size: u32 = 4096,
+    enable_vector: bool = false,
+    vector_dimensions: u16 = 128,
+    enable_wal: bool = true,
+    enable_adjacency_cache: bool = false,
+    /// Take a lock on the file so two processes cannot tread on each other.
+    ///
+    /// Defaults to true. Turn it off only where locking does not work, such as
+    /// some network filesystems; it does not make concurrent access safe.
+    lock: bool = true,
 };
 
 // ============================================================================
@@ -1080,6 +1102,34 @@ fn buildOpenOptionsV3(options: ?*const lattice_open_options_v3) DatabaseError!Op
     return zig_options;
 }
 
+fn buildOpenOptionsV4(options: ?*const lattice_open_options_v4) DatabaseError!OpenOptions {
+    var zig_options = OpenOptions{
+        .create = false,
+        .read_only = false,
+        .config = DatabaseConfig{
+            .enable_wal = true,
+        },
+    };
+
+    if (options) |opts| {
+        if (opts.struct_size < @sizeOf(lattice_open_options_v4)) {
+            return DatabaseError.InvalidArgument;
+        }
+
+        zig_options.create = opts.create;
+        zig_options.read_only = opts.read_only;
+        zig_options.page_size = if (opts.page_size == 0) types.DEFAULT_PAGE_SIZE else opts.page_size;
+        zig_options.config.buffer_pool_size = @as(usize, opts.cache_size_mb) * 1024 * 1024;
+        zig_options.config.enable_vector = opts.enable_vector;
+        zig_options.config.vector_dimensions = opts.vector_dimensions;
+        zig_options.config.enable_wal = opts.enable_wal;
+        zig_options.config.enable_adjacency_cache = opts.enable_adjacency_cache;
+        zig_options.lock = opts.lock;
+    }
+
+    return zig_options;
+}
+
 fn openDatabase(
     path: [*c]const u8,
     zig_options: OpenOptions,
@@ -1160,6 +1210,15 @@ pub export fn lattice_open_v3(
     db_out: *?*lattice_database,
 ) lattice_error {
     const zig_options = buildOpenOptionsV3(options) catch |err| return mapDatabaseError(err);
+    return openDatabase(path, zig_options, db_out);
+}
+
+pub export fn lattice_open_v4(
+    path: [*c]const u8,
+    options: ?*const lattice_open_options_v4,
+    db_out: *?*lattice_database,
+) lattice_error {
+    const zig_options = buildOpenOptionsV4(options) catch |err| return mapDatabaseError(err);
     return openDatabase(path, zig_options, db_out);
 }
 
@@ -3364,6 +3423,7 @@ pub export fn lattice_error_message(code: lattice_error) [*c]const u8 {
         .err_out_of_memory => "Out of memory",
         .err_unsupported => "Unsupported operation or value type",
         .err_value_too_large => "Value too large for database page size",
+        .err_database_locked => "Database is open in another process",
     };
 }
 

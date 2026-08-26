@@ -113,6 +113,7 @@ export interface OpenOptions {
   enableVectors?: boolean;
   enableVector?: boolean;
   vectorDimensions?: number;
+  lock?: boolean;
 }
 
 /**
@@ -208,6 +209,13 @@ export class LatticeFFI {
   open(path: string, options: OpenOptions = {}): DatabaseHandle {
     const enableWal = options.enableWal ?? true;
     const enableAdjacencyCache = options.enableAdjacencyCache ?? false;
+    const lock = options.lock ?? true;
+    if (!this.bindings.lattice_open_v4 && !lock) {
+      throw new LatticeError(
+        'lattice_open_v4 is required to disable the file lock',
+        LatticeErrorCode.Unsupported
+      );
+    }
     if (!this.bindings.lattice_open_v2 && !enableWal) {
       throw new LatticeError(
         'lattice_open_v2 is required to disable WAL',
@@ -241,8 +249,18 @@ export class LatticeFFI {
       enable_adjacency_cache: enableAdjacencyCache,
     };
 
+    const v4Opts = {
+      struct_size: koffi.sizeof('lattice_open_options_v4'),
+      ...baseOpts,
+      enable_wal: enableWal,
+      enable_adjacency_cache: enableAdjacencyCache,
+      lock,
+    };
+
     const dbOut: unknown[] = [null];
-    const err = this.bindings.lattice_open_v3
+    const err = this.bindings.lattice_open_v4
+      ? this.bindings.lattice_open_v4(path, v4Opts, dbOut)
+      : this.bindings.lattice_open_v3
       ? this.bindings.lattice_open_v3(path, v3Opts, dbOut)
       : this.bindings.lattice_open_v2
         ? this.bindings.lattice_open_v2(path, v2Opts, dbOut)

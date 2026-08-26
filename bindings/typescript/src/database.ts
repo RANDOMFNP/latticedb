@@ -39,6 +39,14 @@ export interface DatabaseOptions {
   enableVector?: boolean;
   /** Vector dimensions (default: 128) */
   vectorDimensions?: number;
+  /**
+   * Take a lock on the file so two processes cannot tread on each other
+   * (default: true). A read-write handle takes it exclusively and a read-only
+   * handle shares it, so opening throws rather than waiting. Turn this off only
+   * where locking does not work, such as some network filesystems; it does not
+   * make concurrent access safe.
+   */
+  lock?: boolean;
 }
 
 /**
@@ -82,6 +90,7 @@ export class Database {
       enableAdjacencyCache: false,
       enableVector: false,
       vectorDimensions: 128,
+      lock: true,
       ...options,
     };
   }
@@ -104,6 +113,7 @@ export class Database {
       enableVectors: this.options.enableVectors,
       enableVector: this.options.enableVector,
       vectorDimensions: this.options.vectorDimensions,
+      lock: this.options.lock,
     });
   }
 
