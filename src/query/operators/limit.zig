@@ -13,6 +13,7 @@ const OperatorError = executor.OperatorError;
 const Row = executor.Row;
 const ExecutionContext = executor.ExecutionContext;
 const MAX_SLOTS = executor.MAX_SLOTS;
+const PropertyValue = @import("lattice").core.types.PropertyValue;
 
 const expression = @import("../expression.zig");
 const ExpressionEvaluator = expression.ExpressionEvaluator;
@@ -239,10 +240,17 @@ pub const Skip = struct {
 
 /// Sort order item
 pub const SortItem = struct {
-    /// Expression to sort by
+    /// Expression to sort by, used when `slot` is null.
     expr: *const ast.Expression,
     /// Sort descending
     descending: bool,
+    /// Read this slot of the row instead of evaluating `expr`.
+    ///
+    /// Sorting the output of an aggregation cannot work by evaluating: the
+    /// expression is something like `count(p)`, and the rows reaching the sort
+    /// have already been grouped, so there is no longer a `p` to count. The
+    /// value is sitting in a column of the row, and this says which one.
+    slot: ?u8 = null,
 };
 
 /// Sort operator that orders rows by expression(s).
@@ -326,14 +334,19 @@ pub const Sort = struct {
         const ctx = self.ctx orelse return 0;
 
         for (self.sort_items) |item| {
-            const a_val = self.evaluator.evaluate(item.expr, a, ctx) catch {
-                return 0;
+            const cmp = if (item.slot) |slot| blk: {
+                const a_val = valueAt(a, slot);
+                const b_val = valueAt(b, slot);
+                break :blk compareValues(a_val, b_val);
+            } else blk: {
+                const a_val = self.evaluator.evaluate(item.expr, a, ctx) catch {
+                    return 0;
+                };
+                const b_val = self.evaluator.evaluate(item.expr, b, ctx) catch {
+                    return 0;
+                };
+                break :blk compareEvalResults(a_val, b_val);
             };
-            const b_val = self.evaluator.evaluate(item.expr, b, ctx) catch {
-                return 0;
-            };
-
-            const cmp = compareEvalResults(a_val, b_val);
             if (cmp != 0) {
                 return if (item.descending) -cmp else cmp;
             }
@@ -373,6 +386,59 @@ pub const Sort = struct {
 };
 
 /// Compare two EvalResults for sorting
+/// Read one slot of a row as a comparable value.
+fn valueAt(row: *const Row, slot: u8) ?PropertyValue {
+    if (slot >= row.slots.len) return null;
+    return switch (row.slots[slot]) {
+        .property => |p| p,
+        // A node or edge reference has no ordering worth inventing, and an empty
+        // slot has no value at all. Both sort as null.
+        else => null,
+    };
+}
+
+/// Order two property values, with nulls last.
+///
+/// Used when sorting reads a column of an already-computed row rather than
+/// evaluating an expression against it.
+fn compareValues(a: ?PropertyValue, b: ?PropertyValue) i32 {
+    if (a == null and b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+
+    return switch (a.?) {
+        .int_val => |av| switch (b.?) {
+            .int_val => |bv| if (av < bv) @as(i32, -1) else if (av > bv) @as(i32, 1) else 0,
+            .float_val => |bv| {
+                const af: f64 = @floatFromInt(av);
+                return if (af < bv) -1 else if (af > bv) 1 else 0;
+            },
+            else => 0,
+        },
+        .float_val => |av| switch (b.?) {
+            .float_val => |bv| if (av < bv) @as(i32, -1) else if (av > bv) @as(i32, 1) else 0,
+            .int_val => |bv| {
+                const bf: f64 = @floatFromInt(bv);
+                return if (av < bf) -1 else if (av > bf) 1 else 0;
+            },
+            else => 0,
+        },
+        .string_val => |av| switch (b.?) {
+            .string_val => |bv| switch (std.mem.order(u8, av, bv)) {
+                .lt => -1,
+                .eq => 0,
+                .gt => 1,
+            },
+            else => 0,
+        },
+        .bool_val => |av| switch (b.?) {
+            .bool_val => |bv| if (av == bv) @as(i32, 0) else if (av) 1 else -1,
+            else => 0,
+        },
+        else => 0,
+    };
+}
+
 fn compareEvalResults(a: EvalResult, b: EvalResult) i32 {
     // Handle nulls first (nulls sort last)
     if (a.isNull() and b.isNull()) return 0;

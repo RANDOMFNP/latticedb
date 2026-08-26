@@ -4453,3 +4453,156 @@ test "database: a tiny buffer pool still completes real work" {
     defer counted.deinit();
     try std.testing.expectEqual(@as(usize, 1), counted.rowCount());
 }
+
+/// Read a row's string column, for tests that care about ordering.
+fn rowString(result: *const lattice.storage.database.QueryResult, row: usize, col: usize) []const u8 {
+    return switch (result.rows[row].values[col]) {
+        .string_val => |s| s,
+        else => "",
+    };
+}
+
+fn rowInt(result: *const lattice.storage.database.QueryResult, row: usize, col: usize) i64 {
+    return switch (result.rows[row].values[col]) {
+        .int_val => |v| v,
+        else => -1,
+    };
+}
+
+test "database: ORDER BY sorts by an aggregate, not before it" {
+    const allocator = std.testing.allocator;
+
+    const db = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    // Three authors with one, three, and two papers, deliberately created in an
+    // order that does not match any sort, so a sort that does nothing is visible.
+    for ([_][]const u8{
+        "CREATE (a:Author {name: 'one'})",
+        "CREATE (a:Author {name: 'three'})",
+        "CREATE (a:Author {name: 'two'})",
+    }) |cypher| {
+        var r = try db.query(cypher);
+        r.deinit();
+    }
+    for ([_][]const u8{
+        "MATCH (a:Author {name:'one'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'three'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'three'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'three'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'two'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'two'}) CREATE (a)-[:WROTE]->(:Paper {})",
+    }) |cypher| {
+        var r = try db.query(cypher);
+        r.deinit();
+    }
+
+    // Sorting used to be planned underneath the projection, so it ran on the raw
+    // matches and aggregation then regrouped them and threw the order away. The
+    // query succeeded and returned rows in an order nobody asked for, which is
+    // the kind of wrong answer nothing downstream can notice.
+    {
+        var r = try db.query(
+            "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name AS name, count(p) AS papers ORDER BY papers DESC",
+        );
+        defer r.deinit();
+        try std.testing.expectEqual(@as(usize, 3), r.rowCount());
+        try std.testing.expectEqualStrings("three", rowString(&r, 0, 0));
+        try std.testing.expectEqual(@as(i64, 3), rowInt(&r, 0, 1));
+        try std.testing.expectEqualStrings("two", rowString(&r, 1, 0));
+        try std.testing.expectEqualStrings("one", rowString(&r, 2, 0));
+    }
+
+    // Ascending, so a sort that happens to leave things alone cannot pass both.
+    {
+        var r = try db.query(
+            "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name AS name, count(p) AS papers ORDER BY papers",
+        );
+        defer r.deinit();
+        try std.testing.expectEqualStrings("one", rowString(&r, 0, 0));
+        try std.testing.expectEqualStrings("three", rowString(&r, 2, 0));
+    }
+
+    // Naming the aggregate directly rather than through an alias.
+    {
+        var r = try db.query(
+            "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name AS name, count(p) AS papers ORDER BY count(p) DESC",
+        );
+        defer r.deinit();
+        try std.testing.expectEqualStrings("three", rowString(&r, 0, 0));
+    }
+
+    // Sorting by a grouping key rather than the aggregate.
+    {
+        var r = try db.query(
+            "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name AS name, count(p) AS papers ORDER BY name",
+        );
+        defer r.deinit();
+        try std.testing.expectEqualStrings("one", rowString(&r, 0, 0));
+        try std.testing.expectEqualStrings("three", rowString(&r, 1, 0));
+        try std.testing.expectEqualStrings("two", rowString(&r, 2, 0));
+    }
+}
+
+test "database: LIMIT after an aggregate takes the top rows, not any rows" {
+    const allocator = std.testing.allocator;
+
+    const db = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    for ([_][]const u8{
+        "CREATE (a:Author {name: 'one'})",
+        "CREATE (a:Author {name: 'three'})",
+        "CREATE (a:Author {name: 'two'})",
+    }) |cypher| {
+        var r = try db.query(cypher);
+        r.deinit();
+    }
+    for ([_][]const u8{
+        "MATCH (a:Author {name:'one'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'three'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'three'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'three'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'two'}) CREATE (a)-[:WROTE]->(:Paper {})",
+        "MATCH (a:Author {name:'two'}) CREATE (a)-[:WROTE]->(:Paper {})",
+    }) |cypher| {
+        var r = try db.query(cypher);
+        r.deinit();
+    }
+
+    // Top-N by count is the shape this whole class of query exists for, and it
+    // needs the limit applied to the sorted aggregate rather than to the matches.
+    var r = try db.query(
+        "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name AS name, count(p) AS papers ORDER BY papers DESC LIMIT 2",
+    );
+    defer r.deinit();
+    try std.testing.expectEqual(@as(usize, 2), r.rowCount());
+    try std.testing.expectEqualStrings("three", rowString(&r, 0, 0));
+    try std.testing.expectEqualStrings("two", rowString(&r, 1, 0));
+}
+
+test "database: ordering by a column the projection does not produce is refused" {
+    const allocator = std.testing.allocator;
+
+    const db = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    var made = try db.query("CREATE (a:Author {name: 'x'})");
+    made.deinit();
+
+    // Sorting by something that is not there cannot be done, and answering with
+    // rows in some arbitrary order would be worse than saying so.
+    try std.testing.expectError(
+        error.SemanticError,
+        db.query("MATCH (a:Author) RETURN a.name AS name, count(a) AS n ORDER BY missing DESC"),
+    );
+}

@@ -206,17 +206,52 @@ pub const QueryPlanner = struct {
                 },
                 .where => |w| current_op = try self.planWhere(w, current_op),
                 .return_ => |r| {
+                    // Where ORDER BY, SKIP, and LIMIT belong depends on whether
+                    // the projection aggregates.
+                    //
+                    // Without aggregation they go underneath, because sorting by
+                    // `n.name` needs the `n` that projection is about to discard.
+                    //
+                    // With aggregation they have to go on top. `ORDER BY papers`
+                    // where `papers` is `count(p)` cannot be evaluated against
+                    // rows that have not been grouped yet — there is no count to
+                    // read. Planning it underneath sorted the raw matches and
+                    // then regrouped them, which threw the ordering away and
+                    // returned rows in an order nobody asked for, with nothing
+                    // to indicate anything had gone wrong.
+                    const aggregates = returnAggregates(r);
+
                     var input_for_return = current_op;
                     var lookahead = clause_idx + 1;
+                    const first_trailing = lookahead;
                     while (lookahead < query.clauses.len) : (lookahead += 1) {
+                        switch (query.clauses[lookahead]) {
+                            .order_by, .skip, .limit => {},
+                            else => break,
+                        }
+                        if (aggregates) continue;
                         switch (query.clauses[lookahead]) {
                             .order_by => |o| input_for_return = try self.planOrderBy(o, input_for_return, r),
                             .skip => |s| input_for_return = try self.planSkip(s, input_for_return),
                             .limit => |l| input_for_return = try self.planLimit(l, input_for_return),
-                            else => break,
+                            else => unreachable,
                         }
                     }
+
                     current_op = try self.planReturn(r, input_for_return);
+
+                    if (aggregates) {
+                        var i = first_trailing;
+                        while (i < lookahead) : (i += 1) {
+                            switch (query.clauses[i]) {
+                                .order_by => |o| current_op = try self.planOrderByOnOutput(o, current_op, r),
+                                .skip => |sk| current_op = try self.planSkip(sk, current_op),
+                                .limit => |l| current_op = try self.planLimit(l, current_op),
+                                else => unreachable,
+                            }
+                        }
+                    }
+
                     clause_idx = lookahead - 1;
                 },
                 .order_by => |o| current_op = try self.planOrderBy(o, current_op, null),
@@ -1153,6 +1188,96 @@ pub const QueryPlanner = struct {
             if (std.mem.eql(u8, alias, name)) return item.expression;
         }
         return expr;
+    }
+
+    /// Does this RETURN clause aggregate?
+    fn returnAggregates(ret: *const ast.ReturnClause) bool {
+        for (ret.items) |item| {
+            if (aggregate_ops.containsAggregate(item.expression)) return true;
+        }
+        return false;
+    }
+
+    /// Which output column of a RETURN clause does this ORDER BY item name?
+    ///
+    /// After aggregation the row is the projected columns and nothing else, so
+    /// sorting has to name one of them. An alias matches by name, and a bare
+    /// expression matches an item written the same way, which is what lets
+    /// `ORDER BY count(p)` work without an alias.
+    fn outputSlotFor(expr: *ast.Expression, ret: *const ast.ReturnClause) ?u8 {
+        if (expr.* == .variable) {
+            const name = expr.variable.name;
+            for (ret.items, 0..) |item, i| {
+                if (item.alias) |alias| {
+                    if (std.mem.eql(u8, alias, name)) return @intCast(i);
+                }
+            }
+        }
+
+        for (ret.items, 0..) |item, i| {
+            if (expressionsMatch(expr, item.expression)) return @intCast(i);
+        }
+        return null;
+    }
+
+    /// Compare two expressions closely enough to tell whether ORDER BY names a
+    /// column the RETURN already produces.
+    fn expressionsMatch(a: *const ast.Expression, b: *const ast.Expression) bool {
+        if (std.meta.activeTag(a.*) != std.meta.activeTag(b.*)) return false;
+        return switch (a.*) {
+            .variable => |av| std.mem.eql(u8, av.name, b.variable.name),
+            .property_access => |ap| blk: {
+                const bp = b.property_access;
+                if (!std.mem.eql(u8, ap.property, bp.property)) break :blk false;
+                break :blk expressionsMatch(ap.object, bp.object);
+            },
+            .function_call => |af| blk: {
+                const bf = b.function_call;
+                if (!std.ascii.eqlIgnoreCase(af.name, bf.name)) break :blk false;
+                if (af.arguments.len != bf.arguments.len) break :blk false;
+                for (af.arguments, bf.arguments) |aa, ba| {
+                    if (!expressionsMatch(aa, ba)) break :blk false;
+                }
+                break :blk true;
+            },
+            else => false,
+        };
+    }
+
+    /// Plan an ORDER BY that runs after projection, sorting by output column.
+    fn planOrderByOnOutput(
+        self: *Self,
+        order: *const ast.OrderByClause,
+        input: ?Operator,
+        ret: *const ast.ReturnClause,
+    ) PlannerError!Operator {
+        const input_op = input orelse return PlannerError.InvalidQuery;
+
+        var sort_items = self.allocator.alloc(limit_ops.SortItem, order.items.len) catch {
+            return PlannerError.OutOfMemory;
+        };
+        errdefer self.allocator.free(sort_items);
+
+        for (order.items, 0..) |item, i| {
+            // Naming something the projection does not produce is an error
+            // rather than something to sort arbitrarily by. Silently returning
+            // rows in an unhelpful order is how this went unnoticed before.
+            const slot = outputSlotFor(item.expression, ret) orelse {
+                self.allocator.free(sort_items);
+                return PlannerError.InvalidQuery;
+            };
+            sort_items[i] = .{
+                .expr = item.expression,
+                .descending = item.descending,
+                .slot = slot,
+            };
+        }
+
+        const sort = limit_ops.Sort.init(self.allocator, input_op, sort_items) catch {
+            return PlannerError.OutOfMemory;
+        };
+
+        return sort.operator();
     }
 
     /// Plan an ORDER BY clause
