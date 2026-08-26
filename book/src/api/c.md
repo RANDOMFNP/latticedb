@@ -49,6 +49,7 @@ LATTICE_ERROR_CHECKSUM      // -12 - Checksum verification failed
 LATTICE_ERROR_OUT_OF_MEMORY // -13 - Out of memory
 LATTICE_ERROR_UNSUPPORTED   // -14 - Unsupported operation or value type
 LATTICE_ERROR_VALUE_TOO_LARGE // -15 - Value exceeds engine storage limits
+LATTICE_ERROR_DATABASE_LOCKED // -16 - Database is open in another process
 ```
 
 ### Value Types
@@ -123,23 +124,49 @@ against the old size, so newer options come as new structs. Each starts with its
 own size, which is how the library knows which version you compiled against.
 
 ```c
-lattice_open_options_v3 options = LATTICE_OPEN_OPTIONS_V3_DEFAULT;
+lattice_open_options_v4 options = LATTICE_OPEN_OPTIONS_V4_DEFAULT;
 options.create = true;
 options.enable_vector = true;
 options.vector_dimensions = 1536;
 options.enable_adjacency_cache = true;
 
 lattice_database* db;
-lattice_open_v3("graph.lattice", &options, &db);
+lattice_open_v4("graph.lattice", &options, &db);
 ```
 
 Use `lattice_open_v2` with `lattice_open_options_v2`, which adds `enable_wal` to
 the original set.
 `lattice_open_options_v3` adds `enable_adjacency_cache`, which keeps an
 in-memory map of which nodes connect to which and speeds up traversal.
+`lattice_open_options_v4` adds `lock`, which defaults to true and is described
+below.
 
 Always initialise from the matching `_DEFAULT` macro rather than zeroing the
-struct yourself, because `struct_size` has to be set correctly.
+struct yourself, because `struct_size` has to be set correctly. With `lock` this
+matters more than usual: a zeroed struct asks for no locking, which is the
+opposite of what you want.
+
+### The file lock
+
+A database can only be open in one process at a time. Opening takes a lock on the
+file: a read-write handle takes it exclusively and a read-only handle shares it,
+so `lattice_open` returns `LATTICE_ERROR_DATABASE_LOCKED` if another process
+holds it in a conflicting way. It does not wait.
+
+Note that this is a different error from `LATTICE_ERROR_LOCK_TIMEOUT`, which
+means a second write transaction inside your own process. One is a scheduling
+problem you can retry your way out of; the other means the file belongs to
+somebody else.
+
+```c
+lattice_open_options_v4 options = LATTICE_OPEN_OPTIONS_V4_DEFAULT;
+options.lock = false;   // only where locking does not work
+```
+
+Turn `lock` off only on filesystems that do not support locking, such as some
+network filesystems, where the alternative is not being able to open the database
+at all. It does not make concurrent access safe. It removes the thing that was
+going to tell you it was not.
 
 ## Transaction Operations
 
@@ -700,7 +727,7 @@ lattice_query_cache_stats(db, &entries, &hits, &misses);
 
 ```c
 // Get version string
-const char* version = lattice_version();  // e.g. "0.12.0"
+const char* version = lattice_version();  // e.g. "0.13.0"
 
 // Get error message
 const char* msg = lattice_error_message(LATTICE_ERROR_NOT_FOUND);

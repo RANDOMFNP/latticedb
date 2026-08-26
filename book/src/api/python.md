@@ -71,9 +71,20 @@ Database(
     cache_size_mb: int = 100,    # Page cache size
     enable_vectors: bool | None = None, # Preferred vector config flag
     enable_vector: bool | None = None,  # Deprecated compatibility alias
-    vector_dimensions: int = 128 # Vector dimensions
+    vector_dimensions: int = 128,# Vector dimensions
+    lock: bool = True            # Take the file lock (see below)
 )
 ```
+
+A database can only be open in one process at a time. Opening takes a lock on the
+file, so a second process gets `LatticeDatabaseLockedError` rather than quietly
+corrupting your data. A read-only handle shares the lock with other readers, but
+is still refused while a writer holds the database, because what it would read is
+a stale file that a checkpoint may be rewriting underneath it.
+
+Pass `lock=False` only on filesystems where locking does not work. It does not
+make concurrent access safe; it removes the thing that was going to tell you it
+was not.
 
 #### Methods
 

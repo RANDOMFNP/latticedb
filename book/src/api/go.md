@@ -45,11 +45,22 @@ defer db.Close()
 | `VectorDimensions` | How many numbers are in each vector |
 | `EnableAdjacencyCache` | Keep an in-memory map of connections to speed up traversal |
 | `DisableWAL` | Open without write-ahead logging |
+| `DisableLock` | Open without taking a lock on the file |
 
-Two of these need a word of explanation. `DisableWAL` exists because a Go `bool`
-cannot tell "the caller left this alone" apart from "the caller set it to
-false", and write-ahead logging defaults to on. Set `DisableWAL` when you
-genuinely want it off. There is also an older `EnableVector` field kept for
+A database can only be open in one process at a time. Opening takes a lock on the
+file, so a second process gets an error whose `Code` is `ErrorDatabaseLocked`
+rather than quietly corrupting your data. A read-only handle shares the lock with
+other readers, but is still refused while a writer holds the database, because
+what it would read is a stale file that a checkpoint may be rewriting underneath
+it. Set `DisableLock` only on filesystems where locking does not work; it does not
+make concurrent access safe, it removes the thing that was going to tell you it
+was not.
+
+Three of these need a word of explanation. `DisableWAL` and `DisableLock` are
+phrased as negatives because a Go `bool` cannot tell "the caller left this alone"
+apart from "the caller set it to false", and both of those features default to
+on. Set them when you genuinely want them off. There is also an older
+`EnableVector` field kept for
 compatibility; new code should use `EnableVectors`.
 
 ## Writing

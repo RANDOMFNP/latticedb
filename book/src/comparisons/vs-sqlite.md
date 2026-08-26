@@ -11,7 +11,7 @@ Start here, because it often is.
 - **Your data is tabular.** Sales records, user accounts, event logs, time series. If your queries are filters and aggregations over rows, SQLite will be simpler, smaller, and just as fast.
 - **You need many concurrent readers across processes.** SQLite in WAL mode handles this well. LatticeDB is single-writer and single-process.
 - **You need ubiquity.** SQLite ships inside every phone, browser, and operating system on earth, has bindings for every language, and will still be readable in thirty years. LatticeDB is new.
-- **You need the ecosystem.** Migration tools, GUI browsers, ORMs, backup tooling, hosted replicas. SQLite has all of it. LatticeDB has none of it yet.
+- **You need the ecosystem.** Migration tools, GUI browsers, ORMs, hosted replicas. SQLite has all of it. LatticeDB has continuous backup and point-in-time restore built in, and almost nothing else yet.
 
 If relationships in your data are an occasional join rather than the point of the query, use SQLite.
 

@@ -99,8 +99,20 @@ interface DatabaseOptions {
   enableVectors?: boolean;   // Preferred vector config flag
   enableVector?: boolean;    // Deprecated compatibility alias
   vectorDimensions?: number; // Vector dimensions (default: 128)
+  lock?: boolean;            // Take the file lock (default: true)
 }
 ```
+
+A database can only be open in one process at a time. Opening takes a lock on the
+file, so a second process gets a `LatticeError` with
+`code === LatticeErrorCode.DatabaseLocked` rather than quietly corrupting your
+data. A read-only handle shares the lock with other readers, but is still refused
+while a writer holds the database, because what it would read is a stale file that
+a checkpoint may be rewriting underneath it.
+
+Pass `lock: false` only on filesystems where locking does not work. It does not
+make concurrent access safe; it removes the thing that was going to tell you it
+was not.
 
 #### Methods
 
