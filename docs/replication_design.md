@@ -276,11 +276,16 @@ frame, which is not something the log supports and not something anybody asked
 for.
 
 **Phase 6 — object storage.** S3-compatible destinations, which is the part of
-the original Phase 5 that is still outstanding. It needs an HTTP client and
-request signing, so it is a dependency decision rather than a continuation of the
-work above. The destination layout is already the shape object storage wants:
-whole objects, written once, named by content rather than mutated in place, with
-a manifest naming them all.
+the original Phase 5 that is still outstanding. The destination layout is already
+the shape object storage wants: whole objects, written once, named by content
+rather than mutated in place, with a manifest naming them all.
+
+This is now folded into [blob storage and in-memory databases](blob_and_memory_design.md),
+which needs the same thing for a different reason. One `BlobStore` interface
+serves both, and the cost turned out lower than "a dependency decision" implied:
+`std.crypto` covers the signing, the HTTP client is already in the tree for
+embeddings, and one SigV4 implementation reaches S3, Cloudflare R2, and Google
+Cloud Storage through its S3-compatible API.
 
 Phases 1 through 3 are worth doing even if the rest never happens.
 
