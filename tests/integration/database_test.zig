@@ -4606,3 +4606,98 @@ test "database: ordering by a column the projection does not produce is refused"
         db.query("MATCH (a:Author) RETURN a.name AS name, count(a) AS n ORDER BY missing DESC"),
     );
 }
+
+test "database: full-text scores mean the same thing after reopening" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_fts_stats.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_fts_stats.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_fts_stats.ltdb-wal") catch {};
+
+    const short = "zebra";
+    const long = "zebra " ++ ("filler " ** 60);
+
+    var fresh_short: f32 = 0;
+    var fresh_long: f32 = 0;
+
+    {
+        const db = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{ .enable_fts = true, .enable_vector = false },
+        });
+        defer db.close();
+
+        var txn = try db.beginTransaction(.read_write);
+        var i: usize = 0;
+        while (i < 40) : (i += 1) _ = try db.createNode(&txn, &[_][]const u8{"Doc"});
+        try db.commitTransaction(&txn);
+
+        try db.ftsIndexDocument(1, short);
+        try db.ftsIndexDocument(2, long);
+        var id: u64 = 3;
+        while (id <= 40) : (id += 1) try db.ftsIndexDocument(id, "unrelated filler text");
+
+        const hits = try db.ftsSearch("zebra", 10);
+        defer db.freeFtsSearchResults(hits);
+        try std.testing.expectEqual(@as(usize, 2), hits.len);
+        for (hits) |h| {
+            if (h.doc_id == 1) fresh_short = h.score;
+            if (h.doc_id == 2) fresh_long = h.score;
+        }
+        try std.testing.expect(fresh_short > 0);
+        try std.testing.expect(fresh_long > 0);
+    }
+
+    // Scoring needs the size and average length of the whole corpus, and neither
+    // can be worked out from the document being scored. Those statistics used to
+    // live only in memory, so a session that searched without indexing anything
+    // first scored against an empty corpus and produced different numbers for the
+    // same data.
+    {
+        const db = try Database.open(allocator, path, .{
+            .config = .{ .enable_fts = true, .enable_vector = false },
+        });
+        defer db.close();
+
+        const hits = try db.ftsSearch("zebra", 10);
+        defer db.freeFtsSearchResults(hits);
+        try std.testing.expectEqual(@as(usize, 2), hits.len);
+
+        for (hits) |h| {
+            if (h.doc_id == 1) try std.testing.expectEqual(fresh_short, h.score);
+            if (h.doc_id == 2) try std.testing.expectEqual(fresh_long, h.score);
+        }
+    }
+}
+
+test "database: a shorter document scores higher for the same term" {
+    const allocator = std.testing.allocator;
+
+    // Length normalisation is the part that breaks when the average document
+    // length is unknown, and it is what makes a title beat a passing mention
+    // buried in a page of text.
+    const db = try Database.open(allocator, ":memory:", .{
+        .create = true,
+        .config = .{ .enable_fts = true, .enable_vector = false },
+    });
+    defer db.close();
+
+    var txn = try db.beginTransaction(.read_write);
+    var i: usize = 0;
+    while (i < 30) : (i += 1) _ = try db.createNode(&txn, &[_][]const u8{"Doc"});
+    try db.commitTransaction(&txn);
+
+    try db.ftsIndexDocument(1, "zebra");
+    try db.ftsIndexDocument(2, "zebra " ++ ("filler " ** 60));
+    var id: u64 = 3;
+    while (id <= 30) : (id += 1) try db.ftsIndexDocument(id, "unrelated filler text");
+
+    const hits = try db.ftsSearch("zebra", 10);
+    defer db.freeFtsSearchResults(hits);
+
+    try std.testing.expectEqual(@as(usize, 2), hits.len);
+    try std.testing.expectEqual(@as(u64, 1), hits[0].doc_id);
+    try std.testing.expect(hits[0].score > hits[1].score);
+}

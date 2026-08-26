@@ -137,15 +137,13 @@ pub const FtsIndex = struct {
         reverse_tree: ?*BTree,
         config: FtsConfig,
     ) Self {
-        var doc_lengths = DocLengthStore.init(allocator, lengths_tree);
-
         return Self{
             .allocator = allocator,
             .config = config,
             .dictionary = Dictionary.init(allocator, dict_tree),
             .posting_store = PostingStore.init(allocator, bp),
-            .doc_lengths = doc_lengths,
-            .scorer = Bm25Scorer.init(config.bm25, &doc_lengths),
+            .doc_lengths = DocLengthStore.init(allocator, lengths_tree),
+            .scorer = Bm25Scorer.init(config.bm25),
             .reverse_index = if (reverse_tree) |rt| ReverseIndex.init(allocator, rt) else null,
             .dict_tree = dict_tree,
             .lengths_tree = lengths_tree,
@@ -327,9 +325,6 @@ pub const FtsIndex = struct {
                 else => return FtsError.IoError,
             };
         }
-
-        // Update scorer's reference to doc_lengths
-        self.scorer = Bm25Scorer.init(self.config.bm25, &self.doc_lengths);
 
         return @intCast(tokens.len);
     }
@@ -577,6 +572,7 @@ pub const FtsIndex = struct {
             };
 
             const score = self.scorer.scoreTerm(
+                        self.doc_lengths.stats,
                 entry.term_freq,
                 dict_entry.doc_freq,
                 doc_length,
@@ -698,6 +694,7 @@ pub const FtsIndex = struct {
                 continue;
             };
             total_score += self.scorer.scoreTerm(
+                        self.doc_lengths.stats,
                 driver_entry.term_freq,
                 driver.dict_entry.doc_freq,
                 driver_doc_length,
@@ -713,6 +710,7 @@ pub const FtsIndex = struct {
 
                 // Add score contribution
                 total_score += self.scorer.scoreTerm(
+                        self.doc_lengths.stats,
                     other_entry.?.term_freq,
                     info.dict_entry.doc_freq,
                     driver_doc_length,
@@ -844,6 +842,7 @@ pub const FtsIndex = struct {
 
                     // Score with fuzzy penalty
                     const score = self.scorer.scoreTermFuzzy(
+                        self.doc_lengths.stats,
                         posting.term_freq,
                         match.entry.doc_freq,
                         doc_length,
@@ -977,6 +976,7 @@ pub const FtsIndex = struct {
 
                             // Score without penalty (exact prefix match)
                             const score = self.scorer.scoreTerm(
+                        self.doc_lengths.stats,
                                 posting.term_freq,
                                 match.entry.doc_freq,
                                 doc_length,
@@ -1023,6 +1023,7 @@ pub const FtsIndex = struct {
                         const doc_length = self.doc_lengths.getLength(posting.doc_id) catch continue;
 
                         const score = self.scorer.scoreTerm(
+                        self.doc_lengths.stats,
                             posting.term_freq,
                             dict_entry.doc_freq,
                             doc_length,
@@ -1501,6 +1502,7 @@ pub const FtsIndex = struct {
                 const doc_length = self.doc_lengths.getLength(entry.doc_id) catch continue;
 
                 const score = self.scorer.scoreTerm(
+                        self.doc_lengths.stats,
                     entry.term_freq,
                     dict_entry.doc_freq,
                     doc_length,
@@ -1735,6 +1737,7 @@ pub const FtsIndex = struct {
                         // Get score contribution
                         const doc_length = self.doc_lengths.getLength(entry.doc_id) catch 1;
                         const score = self.scorer.scoreTerm(
+                        self.doc_lengths.stats,
                             entry.term_freq,
                             dict_entry.doc_freq,
                             doc_length,
@@ -1764,7 +1767,7 @@ pub const FtsIndex = struct {
         while (match_iter.next()) |entry| {
             const doc_id = entry.key_ptr.*;
             const doc_length = self.doc_lengths.getLength(doc_id) catch 1;
-            const first_score = self.scorer.scoreTerm(1, first_entry.doc_freq, doc_length);
+            const first_score = self.scorer.scoreTerm(self.doc_lengths.stats, 1, first_entry.doc_freq, doc_length);
             entry.value_ptr.* += first_score;
         }
 

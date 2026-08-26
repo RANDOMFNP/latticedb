@@ -81,9 +81,28 @@ pub const DocLengthStore = struct {
 
     const Self = @This();
 
-    /// Initialize document length store with a B+Tree
+    /// Key the corpus statistics are stored under.
+    ///
+    /// Document keys are always eight bytes, so a shorter key cannot collide
+    /// with one however many documents are indexed.
+    const STATS_KEY = [_]u8{ 0x00, 's', 't', 'a', 't', 's' };
+
+    /// Statistics as they sit in the tree.
+    const StatsEntry = extern struct {
+        total_docs: u64,
+        total_tokens: u64,
+    };
+
+    /// Initialize document length store with a B+Tree.
+    ///
+    /// Statistics are read back from the tree, because BM25 needs the size and
+    /// average length of the whole corpus and neither can be inferred from the
+    /// document being scored. Starting them at zero, as this used to, meant every
+    /// score after a reopen was computed against an empty corpus: the inverse
+    /// document frequency had no document count to work from and the length
+    /// normalisation had no average to compare against.
     pub fn init(allocator: Allocator, tree: *BTree) Self {
-        return Self{
+        var self = Self{
             .allocator = allocator,
             .tree = tree,
             .stats = DocStats{
@@ -92,6 +111,36 @@ pub const DocLengthStore = struct {
                 .avg_doc_length = 0,
             },
         };
+        self.loadStats();
+        return self;
+    }
+
+    fn loadStats(self: *Self) void {
+        const result = self.tree.get(&STATS_KEY) catch return;
+        const value = result orelse return;
+        defer self.tree.freeValue(value);
+        if (value.len < @sizeOf(StatsEntry)) return;
+
+        const entry = std.mem.bytesAsValue(StatsEntry, value[0..@sizeOf(StatsEntry)]).*;
+        self.stats.total_docs = entry.total_docs;
+        self.stats.total_tokens = entry.total_tokens;
+        self.stats.recalculate();
+    }
+
+    /// Write the statistics back so the next reader sees them.
+    ///
+    /// Called on every change to a document. That is one extra tree write per
+    /// indexed document, alongside the several that indexing already performs,
+    /// and it buys scores that mean the same thing after a restart.
+    fn persistStats(self: *Self) void {
+        const entry = StatsEntry{
+            .total_docs = self.stats.total_docs,
+            .total_tokens = self.stats.total_tokens,
+        };
+        const bytes = std.mem.asBytes(&entry);
+
+        self.tree.delete(&STATS_KEY) catch {};
+        self.tree.insert(&STATS_KEY, bytes) catch {};
     }
 
     /// Set document length (updates stats)
@@ -139,6 +188,7 @@ pub const DocLengthStore = struct {
         }
 
         self.stats.recalculate();
+        self.persistStats();
     }
 
     /// Get document length
@@ -181,6 +231,7 @@ pub const DocLengthStore = struct {
             self.stats.total_docs -= 1;
             self.stats.total_tokens -= entry.length;
             self.stats.recalculate();
+            self.persistStats();
         }
     }
 
@@ -199,28 +250,30 @@ pub const DocLengthStore = struct {
 };
 
 /// BM25 scorer
+///
+/// Holds no reference to the document store. It used to keep a pointer, and the
+/// only caller handed it the address of a local that died when the constructor
+/// returned, so every score was computed by reading freed stack memory. Taking
+/// the statistics as an argument removes the possibility rather than fixing the
+/// one instance of it.
 pub const Bm25Scorer = struct {
     config: Bm25Config,
-    doc_lengths: *DocLengthStore,
 
     const Self = @This();
 
     /// Initialize BM25 scorer
-    pub fn init(config: Bm25Config, doc_lengths: *DocLengthStore) Self {
-        return Self{
-            .config = config,
-            .doc_lengths = doc_lengths,
-        };
+    pub fn init(config: Bm25Config) Self {
+        return Self{ .config = config };
     }
 
     /// Calculate BM25 score for a single term in a document
     pub fn scoreTerm(
         self: *Self,
+        stats: DocStats,
         term_freq: u32,
         doc_freq: u32,
         doc_length: u32,
     ) f32 {
-        const stats = self.doc_lengths.stats;
 
         // Handle edge cases
         if (stats.total_docs == 0 or doc_freq == 0) {
@@ -250,13 +303,14 @@ pub const Bm25Scorer = struct {
     /// Applies quadratic penalty: score * (1 - (distance/max_distance)^2)
     pub fn scoreTermFuzzy(
         self: *Self,
+        stats: DocStats,
         term_freq: u32,
         doc_freq: u32,
         doc_length: u32,
         edit_distance: u32,
         max_distance: u32,
     ) f32 {
-        const base_score = self.scoreTerm(term_freq, doc_freq, doc_length);
+        const base_score = self.scoreTerm(stats, term_freq, doc_freq, doc_length);
 
         // Apply distance penalty
         if (max_distance == 0) {
@@ -275,14 +329,16 @@ pub const Bm25Scorer = struct {
     /// Calculate BM25 score for a document with multiple terms
     pub fn scoreDocument(
         self: *Self,
+        doc_lengths: *DocLengthStore,
         doc_id: DocId,
         term_scores: []const TermScore,
     ) ScorerError!f32 {
-        const doc_length = try self.doc_lengths.getLength(doc_id);
+        const doc_length = try doc_lengths.getLength(doc_id);
+        const stats = doc_lengths.stats;
 
         var total: f32 = 0.0;
         for (term_scores) |ts| {
-            total += self.scoreTerm(ts.term_freq, ts.doc_freq, doc_length);
+            total += self.scoreTerm(stats, ts.term_freq, ts.doc_freq, doc_length);
         }
         return total;
     }
@@ -357,14 +413,14 @@ test "bm25 score calculation" {
     try std.testing.expect(avg > 116.0 and avg < 117.0);
 
     // Test scorer
-    var scorer = Bm25Scorer.init(.{}, &doc_lengths);
+    var scorer = Bm25Scorer.init(.{});
 
     // Score a term that appears in 1 of 3 docs (high IDF)
-    const score1 = scorer.scoreTerm(2, 1, 100);
+    const score1 = scorer.scoreTerm(doc_lengths.stats, 2, 1, 100);
     try std.testing.expect(score1 > 0);
 
     // Score a term that appears in all docs (low IDF)
-    const score2 = scorer.scoreTerm(2, 3, 100);
+    const score2 = scorer.scoreTerm(doc_lengths.stats, 2, 3, 100);
     try std.testing.expect(score2 > 0);
 
     // Rare term should have higher score
