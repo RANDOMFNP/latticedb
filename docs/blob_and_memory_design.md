@@ -175,19 +175,47 @@ and useful immediately.
 
 ### The plumbing
 
-Three things, none of them deep:
+Four things, none of them deep:
 
 1. `Database` holds a `Vfs` interface value rather than a concrete `PosixVfs`,
-   and `OpenOptions` grows a way to supply one. The supplied VFS has to outlive
-   the database, since the interface is a fat pointer to something the caller
-   owns.
-2. A `MemoryVfs` implementing the twelve vtable entries. Locking becomes a
-   no-op that always succeeds, deliberately rather than accidentally: there is no
+   and owns the backing object so its lifetime is not something callers have to
+   reason about.
+2. A `MemoryVfs` implementing the twelve vtable entries. Locking becomes a no-op
+   that always succeeds, deliberately rather than accidentally: there is no
    second process to exclude from memory this process owns.
-3. The two bypasses in `database.zig` route through the VFS.
+3. The two bypasses in `database.zig` route through the VFS, or a `:memory:`
+   database will try to delete a real file called `:memory:-wal`.
+4. `open` recognises `:memory:` as a path and picks the memory backend.
 
-With those, `openFromBytes` stops needing a temporary file and `serialize`
-becomes a copy out of memory.
+With those, `deserialize` stops needing a temporary file and `serialize` becomes a
+copy out of memory.
+
+### Asking for it
+
+`:memory:` is a path rather than an option, following SQLite, and the reason is
+that it costs nothing anywhere else. Every binding already takes an arbitrary
+path string and passes it to `lattice_open`, so `Database(":memory:")` in Python,
+`new Database(':memory:')` in TypeScript, `latticedb.Open(":memory:", opts)` in
+Go, and `lattice query :memory:` all work without a single binding change.
+
+An option would mean a new field, therefore a v5 options struct, therefore a
+`lattice_open_v5`, therefore FFI declarations, public option types, and
+documentation in four bindings — for the same capability.
+
+The one binding that touches the path at all is Python, which wraps it in
+`Path`, and `str(Path(":memory:"))` round-trips unchanged.
+
+### Storing it in chunks
+
+The memory VFS stores a file as a list of page-sized chunks rather than one
+growing buffer.
+
+This is not about allocation churn, though it avoids that too. A contiguous
+buffer has to be reallocated as the file grows, and a reallocation moves every
+byte to a new address. Any borrow handed out beforehand — the whole basis of
+lending bytes to a caller or to the buffer pool — becomes a dangling pointer at
+that moment. Chunked storage is what makes borrowing possible at all, so it goes
+in from the start rather than being retrofitted under pressure later.
 
 Worth deciding explicitly: an in-memory database should keep the log **on**.
 
@@ -212,51 +240,106 @@ Bare writing queries keep working either way, because the implicit-transaction
 path falls back to the older behaviour when transactions are unavailable rather
 than refusing the write.
 
-### The double-buffering problem
+### What the buffer pool is for
 
-The buffer pool reads pages into frames it owns. Against a `MemoryVfs` the bytes
-are already in memory, so each page exists twice: once in the memory file, once
-in the pool. Peak cost is roughly the database size plus the pool size.
+Before deciding what to do about memory, it is worth being clear about what the
+pool earns, because most of it has nothing to do with disks.
 
-For the per-case databases both requesters describe this is unlikely to matter.
-It matters at a gigabyte, and it is worth fixing properly rather than pretending
-it is not there.
+- **Pinning.** A page in use cannot be evicted from under its user. A B-tree
+  traversal holds several at once.
+- **Latching.** A reader-writer latch per frame is how concurrent access to one
+  page stays correct.
+- **Dirty tracking.** Knowing which pages need writing back is the checkpoint
+  protocol, not an optimisation.
+- **A stable address.** The engine holds a `*BufferFrame` and works through
+  `frame.data`. That is its interface to storage.
+- **Bounded memory.** Query a hundred gigabytes in forty megabytes of RAM.
+- **Caching.** Avoid going back to storage.
 
-**What not to do.** The obvious fix is to point buffer-pool frames directly at
-the memory file's bytes. Done naively this is wrong, because a dirty page would
-then be modified in place in the "file", which breaks the ordering the
-write-ahead log depends on: the log record has to be durable before the page
-changes. With the log off that objection disappears, but a fix that is only
-correct in one configuration is a trap for whoever changes the configuration
-later.
+Only the last two are about disk. In memory, caching is a copy versus a copy, and
+bounded memory is moot when the database is in RAM by definition. The first four
+are load-bearing whatever sits underneath, so any scheme that removes the pool
+for in-memory databases has to reproduce all four. That is the real argument
+against the more aggressive options below.
 
-**The approach.** Add an optional capability to the VFS rather than a special
-case in the buffer pool:
+### Sizing the pool
 
-```zig
-/// Borrow a read-only view of a byte range, or null when the backing store
-/// cannot lend one. Callers must copy before mutating.
-borrowRead: ?*const fn (ptr, offset: u64, len: usize) ?[]const u8,
-```
+The cost here is easy to state wrongly, and an earlier draft of this document did.
+The pool is **fixed size and allocated eagerly**: `BufferPool.init` allocates a
+page-sized buffer per frame in a loop, and the count comes from a configured
+byte budget. It does not grow with the database.
 
-`PosixVfs` leaves this null and nothing changes for it. `MemoryVfs` returns a
-slice into its own storage. The buffer pool borrows for **clean reads** and copies
-on first write, which is copy-on-write at page granularity: a read-heavy workload
-— which is what "load a case, query it, put it back" mostly is — keeps one copy of
-almost everything, and only genuinely modified pages are duplicated. The log
-ordering is untouched, because the moment a page becomes dirty it is a private
-copy again.
+So peak memory for an in-memory database is **database size plus pool size**, not
+twice the database. For a gigabyte database against the default budget — sixteen
+megabytes, plus twelve each for full-text and vector search — the overhead is a
+few per cent.
 
-For that to work, `MemoryVfs` should store the file as a list of page-sized
-chunks rather than one contiguous buffer. A growing contiguous buffer reallocates
-and invalidates every outstanding borrow, which turns a lending scheme into a
-use-after-free. Chunked storage also removes the copy on every file growth.
+Which turns the problem around. The waste is not large databases, it is small
+ones: a five megabyte per-case database allocating forty megabytes of frames it
+can never fill. That is precisely the workload this feature exists for.
 
-**The sequencing.** Ship Phase 2 with plain copying first. It is correct, it is
-simple, and it makes the feature usable. Add borrowing afterwards, with a
-benchmark that shows the peak memory it saves. Doing invasive surgery on the
-buffer pool before anyone has measured a problem is how databases acquire subtle
-corruption, and the buffer pool is on every hot path in the engine.
+The fix is to cap the in-memory pool at `min(default, database size + headroom)`.
+For the five megabyte database that is a five megabyte pool, in which every page
+fits, the hit rate is a hundred per cent, and nothing is ever evicted — a better
+cache than the forty megabyte pool, which also had a hundred per cent hit rate and
+simply held thirty-five megabytes of frames that were never used. For a gigabyte
+database the minimum picks the default and nothing changes. The rule only bites
+where the pool was over-provisioned relative to the data, so it is not a trade at
+all in the case that matters.
+
+**There is a hard floor, and it is a correctness requirement.** When the clock
+sweep finds no evictable frame, `BufferPool` returns `BufferPoolFull`, which
+surfaces as a failed query rather than a slow one. The pool must therefore always
+hold at least the largest simultaneously-pinned set across concurrent
+transactions, plus headroom. A test that opens a tiny in-memory database and runs
+a deep traversal under concurrent readers belongs with this change, to prove we
+have not sized ourselves into a failure.
+
+### Borrowing the caller's bytes
+
+`deserialize` copies the caller's buffer into the memory VFS today, which means a
+database exists twice during load. Chunks can instead point into the caller's
+buffer, with the first write to a chunk converting it to an owned copy. A
+read-mostly workload — open a case, query it, put it back — then holds one copy
+rather than two, without going anywhere near the buffer pool.
+
+Whether a language can do this is not a matter of how carefully its binding is
+written. Python and TypeScript can: hold a reference to the buffer on the wrapper
+object and the collector cannot take it, and Python's `bytes` are immutable so
+there is no mutation hazard either.
+
+Go cannot. The cgo rules say plainly that "C code may not keep a copy of a Go
+pointer after the call returns... C code may not keep a copy of a string, slice,
+channel, and so forth, because they cannot be pinned with `runtime.Pinner`."
+Java cannot either, for a different reason: pinning a `byte[]` for the lifetime
+of a database can block the collector for as long as that database is open, which
+is not a thing to do to somebody's JVM.
+
+So there are two entry points, and each language uses the one its rules allow.
+The copy happens inside the engine, so the bindings that must copy do not
+hand-roll anything: they call the copying entry point. The same constraint
+already applies in the other direction on `serialize`, where Go copies out with
+`C.GoBytes` before the engine's buffer is released.
+
+### Zero-copy pages, and why they wait
+
+Pool-level borrowing — frames pointing into the memory VFS for clean pages,
+copying on first write — was the original answer to double buffering. It is now
+the last option rather than the first, for two reasons.
+
+It aims at the caching copy, which is the one part of the pool that stops
+mattering in memory, and whose size is now bounded properly by the sizing rule
+above. And it adds a new state, "this frame might not own its bytes", to the
+structure that pinning, latching, and dirty tracking all run through, on every
+read and write in the engine. That is the wrong place to be clever without a
+measurement demanding it.
+
+There is one further alternative worth recording so it is not arrived at by
+elimination later: make the pool itself the storage for in-memory databases, with
+the VFS a view over frames and nothing ever evicted, since there is nowhere to
+evict to. That gives exactly one copy by construction rather than by borrowing.
+It is rejected because it makes the in-memory path structurally different from the
+file path, and that sameness is the whole reason this feature is cheap.
 
 ## Phasing
 
@@ -270,12 +353,15 @@ Upload and download against a caller-supplied URL and headers, streaming, with
 the response ETag returned. No provider-specific code.
 
 **Phase 2 — In-memory databases.**
-Pluggable VFS, `MemoryVfs`, the two bypasses removed, and `serialize` and
-`openFromBytes` with no filesystem involved. Copying, not borrowing.
+A pluggable VFS, a chunked `MemoryVfs`, the two bypasses routed through it, and
+`:memory:` recognised as a path. Pool sizing and the floor test come with it,
+since together they are what makes a small in-memory database cheap. Borrowing
+the caller's bytes on deserialize belongs here too, for the languages that permit
+it.
 
 **Phase 3 — Zero-copy pages.**
-`borrowRead`, chunked memory storage, copy-on-write in the buffer pool, gated on
-a benchmark that demonstrates the saving.
+Frames borrowing from the memory VFS with copy-on-write, gated on a benchmark
+that shows the saving is worth putting a new state into the buffer pool.
 
 Phase 1 is worth having on its own even if the rest never happens, since it is
 what both requests actually need.
