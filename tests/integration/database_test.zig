@@ -3933,3 +3933,186 @@ test "database: a crashed process does not leave the database locked" {
     defer result.deinit();
     try std.testing.expectEqual(@as(usize, 2), result.rowCount());
 }
+
+test "database: a serialized database round-trips through bytes" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_serialize.ltdb";
+    const wal_path = "/tmp/lattice_serialize.ltdb-wal";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+
+    var bytes: []u8 = undefined;
+    {
+        const db = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer db.close();
+
+        try writeNodes(db, "Person", 40);
+
+        // Written through a query rather than the transaction API, because that
+        // is how the data arrives in practice and it used to bypass the log.
+        var created = try db.query("CREATE (c:Company {name: 'Acme'})");
+        created.deinit();
+
+        bytes = try db.serialize(allocator);
+    }
+    defer allocator.free(bytes);
+
+    try std.testing.expect(bytes.len > 0);
+
+    // The bytes are a database file, not a private format. Writing them
+    // anywhere gives you something that opens.
+    const plain = "/tmp/lattice_serialize_plain.ltdb";
+    @import("compat").fs.cwd().deleteFile(plain) catch {};
+    defer @import("compat").fs.cwd().deleteFile(plain) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_serialize_plain.ltdb-wal") catch {};
+    {
+        const file = try @import("compat").fs.cwd().createFile(plain, .{ .truncate = true });
+        try file.pwriteAll(bytes, 0);
+        file.close();
+    }
+    {
+        const db = try Database.open(allocator, plain, .{});
+        defer db.close();
+        var result = try db.query("MATCH (p:Person) RETURN p.name AS name");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 40), result.rowCount());
+    }
+
+    // And deserialize opens them without the caller choosing a path at all.
+    {
+        const db = try Database.deserialize(allocator, bytes, .{
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer db.close();
+
+        var people = try db.query("MATCH (p:Person) RETURN p.name AS name");
+        defer people.deinit();
+        try std.testing.expectEqual(@as(usize, 40), people.rowCount());
+
+        var companies = try db.query("MATCH (c:Company) RETURN c.name AS name");
+        defer companies.deinit();
+        try std.testing.expectEqual(@as(usize, 1), companies.rowCount());
+    }
+}
+
+test "database: a deserialized database is writable and leaves nothing behind" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_serialize_rw.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_serialize_rw.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_serialize_rw.ltdb-wal") catch {};
+
+    var first: []u8 = undefined;
+    {
+        const db = try Database.open(allocator, path, .{
+            .create = true,
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer db.close();
+        try writeNodes(db, "Person", 3);
+        first = try db.serialize(allocator);
+    }
+    defer allocator.free(first);
+
+    var second: []u8 = undefined;
+    var backing_path: []u8 = undefined;
+    {
+        const db = try Database.deserialize(allocator, first, .{
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer db.close();
+
+        backing_path = try allocator.dupe(u8, db.path);
+
+        // The whole point of the workflow is mutate-then-write-back, so the
+        // deserialized database has to accept writes.
+        var added = try db.query("CREATE (p:Person {name: 'added'})");
+        added.deinit();
+
+        second = try db.serialize(allocator);
+    }
+    defer allocator.free(second);
+    defer allocator.free(backing_path);
+
+    // Closing removed the file it was using. A workflow that runs per request
+    // must not leave a temporary database behind every time.
+    try std.testing.expectError(
+        error.FileNotFound,
+        @import("compat").fs.cwd().access(backing_path, .{}),
+    );
+
+    // Changes made after deserializing come back out, and do not reach into the
+    // bytes they came from.
+    {
+        const db = try Database.deserialize(allocator, second, .{
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer db.close();
+        var result = try db.query("MATCH (p:Person) RETURN p.name AS name");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 4), result.rowCount());
+    }
+    {
+        const db = try Database.deserialize(allocator, first, .{
+            .config = .{ .enable_fts = false, .enable_vector = false },
+        });
+        defer db.close();
+        var result = try db.query("MATCH (p:Person) RETURN p.name AS name");
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 3), result.rowCount());
+    }
+}
+
+test "database: serialize refuses while a transaction is open" {
+    const allocator = std.testing.allocator;
+    const path = "/tmp/lattice_serialize_txn.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_serialize_txn.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_serialize_txn.ltdb-wal") catch {};
+
+    const db = try Database.open(allocator, path, .{
+        .create = true,
+        .config = .{ .enable_fts = false, .enable_vector = false },
+    });
+    defer db.close();
+
+    var txn = try db.beginTransaction(.read_write);
+    defer db.abortTransaction(&txn) catch {};
+
+    // Bytes captured while writes land underneath them are torn in ways nothing
+    // downstream would notice until a restore.
+    try std.testing.expectError(
+        DatabaseError.TransactionConflict,
+        db.serialize(allocator),
+    );
+}
+
+test "database: deserializing something that is not a database fails cleanly" {
+    const allocator = std.testing.allocator;
+
+    const junk = try allocator.alloc(u8, 8192);
+    defer allocator.free(junk);
+    @memset(junk, 0x5A);
+
+    try std.testing.expectError(
+        DatabaseError.InvalidDatabase,
+        Database.deserialize(allocator, junk, .{}),
+    );
+
+    // An empty slice is not a database either, and must not be mistaken for a
+    // request to create one.
+    try std.testing.expectError(
+        DatabaseError.InvalidDatabase,
+        Database.deserialize(allocator, &[_]u8{}, .{}),
+    );
+}

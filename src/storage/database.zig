@@ -794,6 +794,9 @@ pub const Database = struct {
     config: DatabaseConfig,
     path: []const u8,
     read_only: bool,
+    /// Set when the file at `path` was created by `deserialize` and exists only
+    /// to back this handle, so closing removes it.
+    owns_backing_file: bool,
 
     const Self = @This();
 
@@ -812,6 +815,8 @@ pub const Database = struct {
         self.allocator = allocator;
         self.config = options.config;
         self.read_only = options.read_only;
+        // Only `deserialize` sets this, once its file has actually been opened.
+        self.owns_backing_file = false;
 
         // Copy path for later use
         self.path = allocator.dupe(u8, path) catch return DatabaseError.OutOfMemory;
@@ -1145,19 +1150,31 @@ pub const Database = struct {
     ///
     /// The destination is written beside the target and renamed into place, so an
     /// interrupted backup never leaves a partial file that looks usable.
+    /// Fold everything pending into the database file, so that the bytes on disk
+    /// are a complete database on their own.
+    ///
+    /// The checkpoint is `.full` rather than `.truncate` so frame numbering is
+    /// left alone for anything following the log. Derived state that lives in
+    /// memory until asked, notably the vector index, has to be persisted first
+    /// or the copy comes out missing an index it claims to have.
+    ///
+    /// Returns the number of pages flushed.
+    fn quiesceForCopy(self: *Self) DatabaseError!u32 {
+        if (self.read_only) return 0;
+        try self.persistHnswIndex();
+        self.saveTreeRoots() catch return DatabaseError.IoError;
+        if (try self.checkpoint(.full)) |stats| {
+            return stats.pages_flushed;
+        }
+        return 0;
+    }
+
     pub fn backup(self: *Self, dest_path: []const u8) DatabaseError!BackupStats {
         if (self.txn_overlays.count() != 0) return DatabaseError.TransactionConflict;
 
         const start_ns = @import("compat").nanoTimestamp();
 
-        var pages_flushed: u32 = 0;
-        if (!self.read_only) {
-            try self.persistHnswIndex();
-            self.saveTreeRoots() catch return DatabaseError.IoError;
-            if (try self.checkpoint(.full)) |stats| {
-                pages_flushed = stats.pages_flushed;
-            }
-        }
+        const pages_flushed = try self.quiesceForCopy();
 
         const temp_path = std.fmt.allocPrint(self.allocator, "{s}.partial", .{dest_path}) catch {
             return DatabaseError.OutOfMemory;
@@ -1213,6 +1230,132 @@ pub const Database = struct {
             .pages_flushed = pages_flushed,
             .duration_ns = @intCast(end_ns - start_ns),
         };
+    }
+
+    /// Hand back the whole database as a block of bytes.
+    ///
+    /// The bytes are a complete database file. Write them anywhere and they
+    /// open, or pass them to `deserialize`. Pending writes are folded in first,
+    /// so nothing is left behind in a log the caller does not have.
+    ///
+    /// This is the piece that makes a database easy to keep in object storage:
+    /// one database is one file, so serialising it is reading that file. The
+    /// caller does its own uploading, with whatever client, credentials, and
+    /// retry policy it already has.
+    ///
+    /// Refuses while a transaction is open, for the same reason `backup` does:
+    /// a copy taken while writes land underneath it is torn in ways no later
+    /// check would catch.
+    ///
+    /// The caller owns the returned slice.
+    pub fn serialize(self: *Self, allocator: Allocator) DatabaseError![]u8 {
+        if (self.txn_overlays.count() != 0) return DatabaseError.TransactionConflict;
+
+        _ = try self.quiesceForCopy();
+
+        const vfs_handle = self.vfs.vfs();
+        var source = vfs_handle.open(self.path, .{ .read = true }) catch {
+            return DatabaseError.IoError;
+        };
+        defer source.close();
+
+        const total = source.size() catch return DatabaseError.IoError;
+        const bytes = allocator.alloc(u8, @intCast(total)) catch {
+            return DatabaseError.OutOfMemory;
+        };
+        errdefer allocator.free(bytes);
+
+        var copied: u64 = 0;
+        while (copied < total) {
+            const read = source.read(copied, bytes[@intCast(copied)..]) catch {
+                return DatabaseError.IoError;
+            };
+            if (read == 0) break;
+            copied += read;
+        }
+        if (copied != total) return DatabaseError.IoError;
+
+        return bytes;
+    }
+
+    /// Where `deserialize` should put the bytes while it works.
+    pub const DeserializeOptions = struct {
+        config: DatabaseConfig = .{},
+        /// Directory to hold the file the bytes are written to. Defaults to
+        /// `/tmp`.
+        ///
+        /// This exists because the engine still needs a real file to open. Once
+        /// databases can live in memory the file goes away and so does this.
+        temp_dir: []const u8 = "/tmp",
+        /// Take a lock on the materialised file. See `OpenOptions.lock`.
+        lock: bool = true,
+    };
+
+    /// Open a database from bytes produced by `serialize`.
+    ///
+    /// The bytes are written to a file of its own choosing, which the returned
+    /// database owns and removes when it closes. Callers do not have to know
+    /// where it went, and nothing is left behind afterwards.
+    ///
+    /// Changes made to the returned database do not travel back to the byte
+    /// slice. Call `serialize` again to get the new bytes.
+    pub fn deserialize(
+        allocator: Allocator,
+        bytes: []const u8,
+        options: DeserializeOptions,
+    ) DatabaseError!*Self {
+        // Checked before anything is written, because an empty or unrecognisable
+        // slice would otherwise be written out, opened, and quietly turned into
+        // a brand new empty database: `open` treats a zero-length file as a
+        // request to create one. Somebody restoring from a truncated download
+        // would get an empty database reported as a success.
+        if (bytes.len < types.DEFAULT_PAGE_SIZE) return DatabaseError.InvalidDatabase;
+        const magic = std.mem.readInt(u32, bytes[0..4], .little);
+        if (magic != types.MAGIC_NUMBER) return DatabaseError.InvalidDatabase;
+
+        // A name nothing else will pick, so two of these can run at once and a
+        // leftover from a crash cannot be mistaken for a live one.
+        var suffix: [16]u8 = undefined;
+        @import("compat").randomBytes(&suffix);
+
+        const path = std.fmt.allocPrint(
+            allocator,
+            "{s}/lattice-deserialized-{x}.lattice",
+            .{ options.temp_dir, suffix },
+        ) catch return DatabaseError.OutOfMemory;
+        defer allocator.free(path);
+
+        const wal_path = std.fmt.allocPrint(allocator, "{s}-wal", .{path}) catch {
+            return DatabaseError.OutOfMemory;
+        };
+        defer allocator.free(wal_path);
+
+        {
+            const file = @import("compat").fs.cwd().createFile(path, .{ .truncate = true }) catch {
+                return DatabaseError.IoError;
+            };
+            defer file.close();
+
+            errdefer @import("compat").fs.cwd().deleteFile(path) catch {};
+            file.pwriteAll(bytes, 0) catch return DatabaseError.IoError;
+            file.sync() catch return DatabaseError.IoError;
+        }
+
+        // Bytes that are not a database fail here, and the file they were
+        // written to goes with them rather than accumulating in the temp
+        // directory.
+        errdefer {
+            @import("compat").fs.cwd().deleteFile(path) catch {};
+            @import("compat").fs.cwd().deleteFile(wal_path) catch {};
+        }
+
+        const db = try Self.open(allocator, path, .{
+            .create = false,
+            .config = options.config,
+            .lock = options.lock,
+        });
+        db.owns_backing_file = true;
+        return db;
     }
 
     /// Ship whatever has changed since the last pass into `dest_dir`.
@@ -1303,6 +1446,18 @@ pub const Database = struct {
         self.page_manager.deinit();
 
         // 1. VFS (no explicit deinit needed)
+
+        // A file that exists only to back this handle goes when the handle does.
+        // Done after everything above, so the log has been checkpointed and both
+        // files are closed before either is removed.
+        if (self.owns_backing_file) {
+            const wal_path = std.fmt.allocPrint(self.allocator, "{s}-wal", .{self.path}) catch null;
+            if (wal_path) |wp| {
+                defer self.allocator.free(wp);
+                @import("compat").fs.cwd().deleteFile(wp) catch {};
+            }
+            @import("compat").fs.cwd().deleteFile(self.path) catch {};
+        }
 
         // Free path
         self.allocator.free(self.path);
