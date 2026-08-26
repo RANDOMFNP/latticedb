@@ -14,6 +14,7 @@ const types = lattice.core.types;
 const File = vfs.File;
 const Vfs = vfs.Vfs;
 const VfsError = vfs.VfsError;
+const LockMode = vfs.LockMode;
 const OpenFlags = vfs.OpenFlags;
 
 const PageId = types.PageId;
@@ -46,6 +47,9 @@ pub const PageManagerError = error{
     FileNotFound,
     PermissionDenied,
     DiskFull,
+    /// Another process holds the database in a way that conflicts with how this
+    /// one asked for it.
+    DatabaseLocked,
 };
 
 /// Options for opening a database file
@@ -56,6 +60,12 @@ pub const OpenOptions = struct {
     read_only: bool = false,
     /// Page size (only used when creating new file)
     page_size: u32 = DEFAULT_PAGE_SIZE,
+    /// Take a lock on the file, so processes cannot tread on each other.
+    ///
+    /// Turning this off is for filesystems where locking does not work rather
+    /// than for arranging concurrent access, which this engine cannot do across
+    /// processes however the lock is set.
+    lock: bool = true,
 };
 
 pub const TruncateStats = struct {
@@ -72,6 +82,8 @@ pub const PageManager = struct {
     header: FileHeader,
     page_size: u32,
     read_only: bool,
+    /// Whether this handle took the file lock, so it knows to let go.
+    holds_lock: bool,
 
     const Self = @This();
 
@@ -94,12 +106,31 @@ pub const PageManager = struct {
         };
         errdefer file.close();
 
+        // Locked before anything is read, because the point of the lock is that
+        // nobody else is changing the file while this one looks at it.
+        //
+        // A writer takes the file exclusively and a reader shares it, which
+        // means a reader is refused while a writer holds the database. That is
+        // the honest answer rather than a limitation of the lock: a reader in
+        // another process cannot see the writer's buffered pages or its log, so
+        // what it would read is a stale file that a checkpoint may be rewriting
+        // underneath it.
+        var holds_lock = false;
+        if (options.lock) {
+            const mode: LockMode = if (options.read_only) .shared else .exclusive;
+            const acquired = file.tryLock(mode) catch return PageManagerError.IoError;
+            if (!acquired) return PageManagerError.DatabaseLocked;
+            holds_lock = true;
+        }
+        errdefer if (holds_lock) file.unlock();
+
         var self = Self{
             .allocator = allocator,
             .file = file,
             .header = undefined,
             .page_size = options.page_size,
             .read_only = options.read_only,
+            .holds_lock = holds_lock,
         };
 
         const file_size = file.size() catch return PageManagerError.IoError;
@@ -121,6 +152,12 @@ pub const PageManager = struct {
 
     /// Close the database file.
     pub fn deinit(self: *Self) void {
+        // Closing the handle drops the lock on its own, and releasing it first
+        // makes that explicit rather than incidental.
+        if (self.holds_lock) {
+            self.file.unlock();
+            self.holds_lock = false;
+        }
         self.file.close();
     }
 

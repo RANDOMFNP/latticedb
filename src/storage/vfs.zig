@@ -59,8 +59,10 @@ pub const File = struct {
         size: *const fn (ptr: *anyopaque) VfsError!u64,
         /// Close file handle.
         close: *const fn (ptr: *anyopaque) void,
-        /// Acquire file lock.
+        /// Acquire file lock, waiting if necessary.
         lock: *const fn (ptr: *anyopaque, mode: LockMode) VfsError!void,
+        /// Acquire file lock if it is free, reporting whether it was taken.
+        tryLock: *const fn (ptr: *anyopaque, mode: LockMode) VfsError!bool,
         /// Release file lock.
         unlock: *const fn (ptr: *anyopaque) void,
     };
@@ -98,6 +100,14 @@ pub const File = struct {
     /// Acquire file lock.
     pub fn lock(self: File, mode: LockMode) VfsError!void {
         return self.vtable.lock(self.ptr, mode);
+    }
+
+    /// Acquire file lock if it is free.
+    ///
+    /// Returns false when somebody else holds an incompatible lock, rather than
+    /// waiting for them to let go.
+    pub fn tryLock(self: File, mode: LockMode) VfsError!bool {
+        return self.vtable.tryLock(self.ptr, mode);
     }
 
     /// Release file lock.
@@ -263,6 +273,7 @@ pub const PosixFile = struct {
         .size = fileSize,
         .close = fileClose,
         .lock = fileLock,
+        .tryLock = fileTryLock,
         .unlock = fileUnlock,
     };
 
@@ -299,6 +310,11 @@ pub const PosixFile = struct {
     fn fileLock(ptr: *anyopaque, mode: LockMode) VfsError!void {
         const self: *Self = @ptrCast(@alignCast(ptr));
         return self.lockFile(mode);
+    }
+
+    fn fileTryLock(ptr: *anyopaque, mode: LockMode) VfsError!bool {
+        const self: *Self = @ptrCast(@alignCast(ptr));
+        return self.tryLockFile(mode);
     }
 
     fn fileUnlock(ptr: *anyopaque) void {
@@ -377,6 +393,22 @@ pub const PosixFile = struct {
             .exclusive => .exclusive,
         }) catch |err| {
             return switch (err) {
+                else => VfsError.Unexpected,
+            };
+        };
+    }
+
+    /// Take the file lock if it is free.
+    pub fn tryLockFile(self: *Self, mode: LockMode) VfsError!bool {
+        return self.handle.tryLock(switch (mode) {
+            .shared => .shared,
+            .exclusive => .exclusive,
+        }) catch |err| {
+            return switch (err) {
+                // A filesystem with no locking cannot report a conflict, so
+                // there is nothing to report one about. Saying the lock was
+                // taken is the honest answer: nothing is holding it.
+                error.FileLocksUnsupported => true,
                 else => VfsError.Unexpected,
             };
         };

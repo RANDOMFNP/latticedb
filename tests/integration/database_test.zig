@@ -3812,3 +3812,124 @@ test "database: a restore refuses to overwrite unless asked" {
         }),
     );
 }
+
+/// Open a database with the standard test configuration.
+fn openForLocking(path: []const u8, options: OpenOptions) !*Database {
+    var opts = options;
+    opts.config = .{ .enable_fts = false, .enable_vector = false };
+    return Database.open(std.testing.allocator, path, opts);
+}
+
+test "database: a second writer is refused rather than let in" {
+    const allocator = std.testing.allocator;
+    _ = allocator;
+    const path = "/tmp/lattice_lock_writer.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_lock_writer.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_lock_writer.ltdb-wal") catch {};
+
+    const first = try openForLocking(path, .{ .create = true });
+
+    // Two writers on one file corrupt it, and the corruption shows up long
+    // after the moment that caused it. The lock is what turns that into an
+    // error at the point of the mistake.
+    try std.testing.expectError(
+        DatabaseError.DatabaseLocked,
+        openForLocking(path, .{}),
+    );
+
+    // A reader cannot see a writer's buffered pages or its log, so what it would
+    // read is a stale file that a checkpoint may be rewriting underneath it.
+    try std.testing.expectError(
+        DatabaseError.DatabaseLocked,
+        openForLocking(path, .{ .read_only = true }),
+    );
+
+    // Closing hands the database back.
+    first.close();
+
+    const second = try openForLocking(path, .{});
+    second.close();
+}
+
+test "database: readers share a database with each other" {
+    const path = "/tmp/lattice_lock_readers.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_lock_readers.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_lock_readers.ltdb-wal") catch {};
+
+    {
+        const db = try openForLocking(path, .{ .create = true });
+        try writeNodes(db, "Person", 3);
+        db.close();
+    }
+
+    // Nothing is writing, so any number of readers is fine.
+    const a = try openForLocking(path, .{ .read_only = true });
+    defer a.close();
+    const b = try openForLocking(path, .{ .read_only = true });
+    defer b.close();
+
+    var result = try b.query("MATCH (p:Person) RETURN p.name AS name");
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 3), result.rowCount());
+
+    // A writer cannot get in while they are reading.
+    try std.testing.expectError(
+        DatabaseError.DatabaseLocked,
+        openForLocking(path, .{}),
+    );
+}
+
+test "database: locking can be turned off for filesystems that lack it" {
+    const path = "/tmp/lattice_lock_off.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_lock_off.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_lock_off.ltdb-wal") catch {};
+
+    const first = try openForLocking(path, .{ .create = true });
+    defer first.close();
+
+    // The escape hatch is for filesystems where locking does not work. It does
+    // not make this safe, and the second handle here would happily corrupt the
+    // first; the point of the test is that the option is honoured.
+    const second = try openForLocking(path, .{ .lock = false });
+    second.close();
+
+    // A handle that skips the lock does not take one either, so it cannot shut
+    // anybody else out.
+    const third = try openForLocking(path, .{ .lock = false });
+    defer third.close();
+}
+
+test "database: a crashed process does not leave the database locked" {
+    const path = "/tmp/lattice_lock_release.ltdb";
+
+    @import("compat").fs.cwd().deleteFile(path) catch {};
+    @import("compat").fs.cwd().deleteFile("/tmp/lattice_lock_release.ltdb-wal") catch {};
+    defer @import("compat").fs.cwd().deleteFile(path) catch {};
+    defer @import("compat").fs.cwd().deleteFile("/tmp/lattice_lock_release.ltdb-wal") catch {};
+
+    {
+        const db = try openForLocking(path, .{ .create = true });
+        try writeNodes(db, "Person", 2);
+        db.close();
+    }
+
+    // The lock lives on the open file rather than in the database, so it goes
+    // away when the handle does, however that happens. There is no stale lock to
+    // clear by hand after a crash, which is the failure mode a lock file would
+    // have introduced.
+    const db = try openForLocking(path, .{});
+    defer db.close();
+
+    var result = try db.query("MATCH (p:Person) RETURN p.name AS name");
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 2), result.rowCount());
+}

@@ -160,6 +160,9 @@ pub const DatabaseError = error{
     ValueTooLarge,
     /// The requested explicit property index does not exist.
     MissingIndex,
+    /// Another process holds this database. A writer takes it exclusively and a
+    /// reader shares it, so a reader is refused while a writer has it open.
+    DatabaseLocked,
 };
 
 /// Query execution errors
@@ -412,6 +415,17 @@ pub const OpenOptions = struct {
     page_size: u32 = types.DEFAULT_PAGE_SIZE,
     /// Database configuration
     config: DatabaseConfig = .{},
+    /// Take a lock on the file so two processes cannot tread on each other.
+    ///
+    /// A read-write handle takes the file exclusively; a read-only handle shares
+    /// it. Opening returns `DatabaseLocked` rather than waiting, because a caller
+    /// who cannot have the database wants to be told, not to hang.
+    ///
+    /// Turn this off only where locking does not work, such as some network
+    /// filesystems. It does not enable concurrent access: this engine cannot
+    /// share a database between processes however the lock is set, so what
+    /// turning it off buys is the old behaviour of finding that out the hard way.
+    lock: bool = true,
 };
 
 fn mapWalInitError(err: WalError) DatabaseError {
@@ -811,9 +825,11 @@ pub const Database = struct {
             .create = options.create,
             .read_only = options.read_only,
             .page_size = options.page_size,
+            .lock = options.lock,
         }) catch |err| {
             return switch (err) {
                 PageManagerError.FileNotFound => DatabaseError.FileNotFound,
+                PageManagerError.DatabaseLocked => DatabaseError.DatabaseLocked,
                 PageManagerError.PermissionDenied => DatabaseError.PermissionDenied,
                 PageManagerError.InvalidPageSize => DatabaseError.InvalidArgument,
                 PageManagerError.OutOfMemory => DatabaseError.OutOfMemory,

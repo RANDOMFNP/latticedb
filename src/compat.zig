@@ -349,6 +349,19 @@ pub const fs = struct {
             return self.file.lock(lock_mode);
         }
 
+        /// Take a lock if it is free, rather than waiting for it.
+        ///
+        /// Returns false when somebody else holds an incompatible lock. Waiting
+        /// is the wrong behaviour for opening a database: a caller who cannot
+        /// have it wants to be told so, not to hang until the other process
+        /// happens to exit.
+        pub fn tryLock(self: File, lock_mode: FileLock) !bool {
+            if (has_io_fs) {
+                return self.file.tryLock(io, lock_mode);
+            }
+            return self.file.tryLock(lock_mode);
+        }
+
         pub fn unlock(self: File) void {
             if (has_io_fs) {
                 self.file.unlock(io);
