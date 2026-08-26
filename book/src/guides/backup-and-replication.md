@@ -193,6 +193,7 @@ should have the same bug rather than a different one.
 | To mirror a database nothing else has open | `lattice replicate --follow` |
 | To undo a bad migration or a bad delete | `lattice restore --at=...` |
 | Many small databases kept in a bucket | `serialize` and `deserialize` |
+| A database that never touches the disk | open `:memory:` |
 
 ## What this is not
 
@@ -238,6 +239,66 @@ a file and open it directly if you ever want to look at one by hand.
 a storage client, credentials, and a retry policy somebody chose deliberately. A
 database that reimplemented all of that would be doing a worse job of something
 you already have, and it would have to hold your cloud credentials to do it.
+
+### Never touching the disk
+
+Pass `:memory:` as the path and the database has no files behind it at all:
+
+```python
+db = latticedb.Database(":memory:")
+```
+
+```typescript
+const db = new Database(':memory:');
+```
+
+```go
+db, err := latticedb.Open(":memory:", latticedb.OpenOptions{})
+```
+
+```bash
+lattice exec :memory: --query="CREATE (n:Note {t: 'scratch'})"
+```
+
+`deserialize` uses this too, so a database pulled out of a bucket never becomes a
+file on the way in. That matters if you are running one of these per request, on
+a read-only filesystem, or anywhere writing a temporary copy of somebody's data
+to local disk would be awkward to explain.
+
+An in-memory database behaves like any other. It has transactions, it has a
+write-ahead log, and you can serialize it back out. The only differences are that
+it disappears when you close it and that nothing locks it, since there is no
+second process that could reach it.
+
+It is also cheaper than you might expect for small databases. The page cache is
+sized to the database rather than to a fixed budget, because a cache bigger than
+the data it holds has frames it can never fill. A hundred-kilobyte database costs
+about a megabyte in memory rather than the sixteen a file-backed one would
+reserve.
+
+### Loading without a second copy
+
+By default `deserialize` copies your bytes, so the database exists twice while it
+loads. Tell it not to and it points at your buffer instead:
+
+```python
+db = latticedb.deserialize(blob, copy=False)
+```
+
+```typescript
+const db = deserialize(blob, {}, false);
+```
+
+Each page becomes a copy of its own the first time something writes to it, so a
+database you read and edit lightly keeps one copy of nearly all of itself. Your
+buffer is never modified, and the database holds a reference to it for as long as
+it is open, so there is nothing for you to keep alive by hand.
+
+Go and Java do not offer this. That is not an oversight in those bindings: Go's
+rules say C code may not keep a pointer into the Go heap after a call returns,
+and pinning a Java array for the lifetime of a database would hold up the garbage
+collector for exactly that long. Both copy instead, which is correct and costs
+one duplicate at load.
 
 ### Two workers, one blob
 

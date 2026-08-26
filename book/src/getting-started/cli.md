@@ -484,6 +484,18 @@ knowing before you run it on real data:
 lattice update
 ```
 
+## Working without a file
+
+Pass `:memory:` instead of a path and the database lives only in memory:
+
+```bash
+lattice exec :memory: --query="CREATE (n:Note {t: 'scratch'}) RETURN n"
+```
+
+Nothing is written to disk and nothing survives the command, which makes it handy
+for trying a query out or checking what some Cypher does. There is no file to
+lock, so `--no-lock` means nothing here.
+
 ## One process at a time
 
 A database can only be open in one process at a time. If you run a command against

@@ -37,6 +37,38 @@ it practical to keep many small databases in object storage.
   `latticedb.Deserialize` in Go, and `lattice_serialize` / `lattice_deserialize`
   in C.
 
+- **New in-memory databases.** Open `:memory:` and the database has no files
+  behind it at all:
+
+  ```python
+  db = latticedb.Database(":memory:")
+  ```
+
+  It works through the command line and all three bindings with no changes to any
+  of them, because every one of them already passes a path string straight
+  through. That was the argument for making it a path rather than an option.
+
+  `deserialize` uses the same backend, so a database pulled out of object storage
+  never becomes a file on the way in — which is what somebody running one of
+  these per request, or on a read-only filesystem, actually asked for.
+
+- **`deserialize` can point at your bytes instead of copying them.** Pass
+  `copy=False` in Python or `copy = false` in TypeScript and a freshly loaded
+  database costs about half what it used to. Each page becomes a copy of its own
+  the first time it is written, so reading a database and changing a little of it
+  keeps one copy of nearly all of it, and your buffer is never modified.
+
+  The bytes have to outlive the database, and the binding holds a reference for
+  you so there is nothing to keep alive by hand. Go and Java do not get this
+  option, and that is a language rule rather than an oversight: Go may not let C
+  retain a pointer into its heap at all, and pinning a Java array for the life of
+  a database would hold up the collector for exactly as long.
+
+- **Small in-memory databases cost much less than they did.** The page cache is
+  sized to the database rather than to a fixed budget, since a cache larger than
+  the data it holds has frames it can never fill. Measured on a hundred-kilobyte
+  database, that is about a megabyte instead of sixteen.
+
 ## API Notes
 
 - `Database.serialize(allocator)` returns the database as bytes. Pending writes
@@ -58,6 +90,24 @@ it practical to keep many small databases in object storage.
   `lattice_free_bytes`; `lattice_deserialize` takes the bytes and an options
   struct.
 
+- New `storage/memory_vfs.zig`. A database holds its storage backend by value, so
+  nothing has to be kept alive alongside the handle. Memory files are stored as
+  page-sized chunks rather than one growing buffer: a contiguous buffer is
+  reallocated as it grows, which moves every byte, and anything holding a borrowed
+  slice would be left pointing at freed memory.
+
+- Opening `:memory:` implies creating it. There is never a previous in-memory
+  database to find, so requiring `create` would be a formality every caller had to
+  remember.
+
+- Locks always succeed in memory. A lock keeps a second process off a database,
+  and no other process can reach memory this one owns.
+
+- New `lattice_deserialize_borrowed`, and `DeserializeOptions.borrow_bytes` in
+  Zig. Borrowing is a separate entry point rather than a flag on the options
+  struct, because it carries an obligation about how long the bytes must live and
+  that deserves to be visible where it is called.
+
 ## Upgrade Notes
 
 - Nothing changes for existing code.
@@ -72,3 +122,13 @@ it practical to keep many small databases in object storage.
 - The round trip was exercised by hand from C, Python, TypeScript, and Go against
   a running database, including releasing the serialized bytes before using the
   deserialized handle.
+- `:memory:` was exercised by hand through the command line and all three
+  bindings, checking in each that a write, a read, and a serialize work and that
+  no file appears on disk.
+- The in-memory tests were checked against a build where `:memory:` falls through
+  to the real filesystem, and against one where every in-memory database shares a
+  filesystem, to confirm they fail when the behaviour is removed.
+- Borrowing was checked the same way, against a build that quietly copies instead
+  and against one whose writes reach through into the caller's buffer. Both
+  properties are asserted directly: that borrowing allocates less than copying,
+  and that the caller's bytes come back unchanged after forty writes.
