@@ -341,25 +341,43 @@ hand-roll anything: they call the copying entry point. The same constraint
 already applies in the other direction on `serialize`, where Go copies out with
 `C.GoBytes` before the engine's buffer is released.
 
-### Zero-copy pages, and why they wait
+### Zero-copy pages: measured, and not needed
 
 Pool-level borrowing — frames pointing into the memory VFS for clean pages,
 copying on first write — was the original answer to double buffering. It is now
-the last option rather than the first, for two reasons.
+closed rather than deferred, because the numbers say there is nothing left for it
+to save.
 
-It aims at the caching copy, which is the one part of the pool that stops
-mattering in memory, and whose size is now bounded properly by the sizing rule
-above. And it adds a new state, "this frame might not own its bytes", to the
-structure that pinning, latching, and dirty tracking all run through, on every
-read and write in the engine. That is the wrong place to be clever without a
-measurement demanding it.
+What an in-memory database actually costs, measured across sizes:
 
-There is one further alternative worth recording so it is not arrived at by
-elimination later: make the pool itself the storage for in-memory databases, with
-the VFS a view over frames and nothing ever evicted, since there is nowhere to
-evict to. That gives exactly one copy by construction rather than by borrowing.
-It is rejected because it makes the in-memory path structurally different from the
-file path, and that sameness is the whole reason this feature is cheap.
+```text
+   100 nodes | file    240 KB | vfs holds    372 KB | pool 256 KB | ratio 2.62x
+  1000 nodes | file   1896 KB | vfs holds   3156 KB | pool 256 KB | ratio 1.80x
+  4000 nodes | file   7416 KB | vfs holds   7420 KB | pool 256 KB | ratio 1.04x
+ 10000 nodes | file  18432 KB | vfs holds  18436 KB | pool 256 KB | ratio 1.01x
+```
+
+The pool is a constant 256 KB. Borrowing pages out of it could save at most that
+much, against putting a new state — "this frame might not own its bytes" — into
+the structure every read and write in the engine runs through. That is not a
+trade worth making at any database size.
+
+The reason a small pool is acceptable was also measured rather than assumed. The
+pool exists to keep pages off a disk, and a miss against memory is a copy from one
+part of RAM to another. On a fourteen megabyte in-memory database, twelve full
+scans took 9.2 seconds against a 256 KB pool and 9.9 against a 32 MB one. The
+larger cache bought nothing at a hundred and twenty times the memory.
+
+Note what the remaining overhead is at small sizes. The 2.6x at a hundred nodes is
+not the pool and not duplication; it is the write-ahead log, which is a second
+file in the same memory backend. It disappears as automatic checkpointing starts
+truncating it, which is why the ratio falls to 1.01x rather than rising.
+
+There was one further alternative, recorded so it is not arrived at by elimination
+later: make the pool itself the storage for in-memory databases, with the VFS a
+view over frames and nothing ever evicted. It is rejected for the same reason and
+one more — it would make the in-memory path structurally different from the file
+path, and that sameness is why this feature was cheap.
 
 ## Phasing
 
@@ -379,9 +397,10 @@ since together they are what makes a small in-memory database cheap. Borrowing
 the caller's bytes on deserialize belongs here too, for the languages that permit
 it.
 
-**Phase 3 — Zero-copy pages.**
-Frames borrowing from the memory VFS with copy-on-write, gated on a benchmark
-that shows the saving is worth putting a new state into the buffer pool.
+**Phase 3 — Zero-copy pages.** *Closed, not needed.* The benchmark it was gated
+on says the pool is a constant 256 KB and total overhead reaches 1.01x, so there
+is nothing material left to save and no reason to put a new state into the buffer
+pool.
 
 Phase 1 is worth having on its own even if the rest never happens, since it is
 what both requests actually need.
