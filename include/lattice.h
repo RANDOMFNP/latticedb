@@ -391,6 +391,44 @@ void lattice_free_node_ids(lattice_node_id* node_ids, size_t count);
 /* Free a string allocated by lattice (e.g., from lattice_node_get_labels) */
 void lattice_free_string(char* str);
 
+/*
+ * Serialization
+ *
+ * A database is a single file, so serializing one is handing back that file's
+ * bytes. Write them anywhere and they open; pass them to lattice_deserialize and
+ * they open without becoming a file you have to name.
+ *
+ * This is the piece that makes a database easy to keep in object storage. Your
+ * application does its own uploading and downloading, with the client,
+ * credentials, and retry policy it already has.
+ */
+
+/* Hand back the whole database as bytes.
+ * Pending writes are folded in first, so the result needs no write-ahead log
+ * beside it. Returns LATTICE_ERROR_LOCK_TIMEOUT if a transaction is open, because
+ * bytes captured while writes land underneath them are torn.
+ * The caller owns *bytes_out and must release it with lattice_free_bytes(). */
+lattice_error lattice_serialize(
+    lattice_database* db,
+    uint8_t** bytes_out,
+    size_t* len_out
+);
+
+/* Open a database from bytes produced by lattice_serialize.
+ * The bytes are copied, so the caller may free them as soon as this returns.
+ * Changes made afterwards do not travel back to them; call lattice_serialize
+ * again to get the new bytes.
+ * Returns LATTICE_ERROR_CORRUPTION if the bytes are not a database. */
+lattice_error lattice_deserialize(
+    const uint8_t* bytes,
+    size_t len,
+    const lattice_open_options_v4* options,
+    lattice_database** db_out
+);
+
+/* Release a buffer returned by lattice_serialize. */
+void lattice_free_bytes(uint8_t* bytes, size_t len);
+
 /* Free heap-backed storage inside a lattice_value returned by an owning API.
  * LIST/MAP values are released recursively.
  * Safe to call on null/bool/int/float values.

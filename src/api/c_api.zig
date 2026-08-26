@@ -1143,6 +1143,14 @@ fn openDatabase(
         return mapDatabaseError(err);
     };
 
+    return adoptDatabase(db, db_out);
+}
+
+/// Wrap an already-open database in a handle the C API can hand out.
+///
+/// Takes ownership: on any failure the database is closed, so a caller that gets
+/// an error never has to wonder whether something is still open.
+fn adoptDatabase(db: *Database, db_out: *?*lattice_database) lattice_error {
     const handle = global_allocator.create(DatabaseHandle) catch {
         db.close();
         return .err_out_of_memory;
@@ -1845,6 +1853,55 @@ pub export fn lattice_node_get_labels(
 }
 
 /// Free a string allocated by lattice
+pub export fn lattice_serialize(
+    db: ?*lattice_database,
+    bytes_out: ?*?[*]u8,
+    len_out: ?*usize,
+) lattice_error {
+    const out_bytes = bytes_out orelse return .err_invalid_arg;
+    const out_len = len_out orelse return .err_invalid_arg;
+    out_bytes.* = null;
+    out_len.* = 0;
+
+    const handle = toHandle(DatabaseHandle, db) orelse return .err_invalid_arg;
+
+    handle.mutex.lock();
+    defer handle.mutex.unlock();
+    if (handle.header.state != .active) return .err_invalid_arg;
+
+    const bytes = handle.db.serialize(global_allocator) catch |err| {
+        return mapDatabaseError(err);
+    };
+
+    out_bytes.* = bytes.ptr;
+    out_len.* = bytes.len;
+    return .ok;
+}
+
+pub export fn lattice_deserialize(
+    bytes: [*c]const u8,
+    len: usize,
+    options: ?*const lattice_open_options_v4,
+    db_out: *?*lattice_database,
+) lattice_error {
+    db_out.* = null;
+    if (bytes == null) return .err_invalid_arg;
+
+    const zig_options = buildOpenOptionsV4(options) catch |err| return mapDatabaseError(err);
+
+    const db = Database.deserialize(global_allocator, bytes[0..len], .{
+        .config = zig_options.config,
+        .lock = zig_options.lock,
+    }) catch |err| return mapDatabaseError(err);
+
+    return adoptDatabase(db, db_out);
+}
+
+pub export fn lattice_free_bytes(bytes: [*c]u8, len: usize) void {
+    if (bytes == null) return;
+    global_allocator.free(bytes[0..len]);
+}
+
 pub export fn lattice_free_string(str: [*c]u8) void {
     if (str == null) return;
 
