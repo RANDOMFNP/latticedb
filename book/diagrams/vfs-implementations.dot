@@ -1,4 +1,4 @@
-// One VFS interface, two backings: real files in production, a map in tests.
+// One VFS interface, two backings: files on a disk, or chunks in memory.
 digraph vfs_implementations {
   bgcolor="transparent"
   rankdir=TB
@@ -11,7 +11,7 @@ digraph vfs_implementations {
   edge [color="#6b7280" penwidth=1.1 arrowsize=0.7]
 
   subgraph cluster_prod {
-    label="Production"
+    label="File-backed"
     fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
     color="#dbe3ec" penwidth=1.1 style=rounded margin=14
     p1 [label="B+Tree"]
@@ -21,12 +21,12 @@ digraph vfs_implementations {
   }
 
   subgraph cluster_test {
-    label="Testing"
+    label=":memory:"
     fontname="Helvetica,Arial,sans-serif" fontsize=12 fontcolor="#6b7280"
     color="#dbe3ec" penwidth=1.1 style=rounded margin=14
     t1 [label="B+Tree"]
     t2 [label="MemoryVfs" fillcolor="#dbe9f8"]
-    t3 [label="HashMap" fillcolor="#f6f8fa" color="#c7d0da"]
+    t3 [label="Page-sized\nchunks in RAM" fillcolor="#f6f8fa" color="#c7d0da"]
     t1 -> t2 -> t3
   }
 }

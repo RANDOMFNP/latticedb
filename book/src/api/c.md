@@ -148,6 +148,25 @@ opposite of what you want.
 
 ### The file lock
 
+```c
+lattice_open_options_v4 options = LATTICE_OPEN_OPTIONS_V4_DEFAULT;
+lattice_database* db;
+lattice_open_v4(":memory:", &options, &db);
+```
+
+### In-memory databases
+
+Pass `:memory:` as the path and the database has no files behind it. Nothing is
+written to disk and nothing survives closing it, which suits a scratch database, a
+test, or one you pulled out of object storage and will hand back as bytes.
+
+It behaves like any other database — transactions, the write-ahead log, and
+serialization all work. The differences are that it disappears when closed, and
+that nothing locks it, since no other process can reach it.
+
+Opening `:memory:` implies creating it, so `create` does not need to be set: there
+is never a previous in-memory database to find.
+
 A database can only be open in one process at a time. Opening takes a lock on the
 file: a read-write handle takes it exclusively and a read-only handle shares it,
 so `lattice_open` returns `LATTICE_ERROR_DATABASE_LOCKED` if another process

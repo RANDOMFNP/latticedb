@@ -1,76 +1,77 @@
-<svg width="443" height="327"
- viewBox="0.00 0.00 332.00 245.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 240.75)">
+<svg width="443" height="336"
+ viewBox="0.00 0.00 332.00 252.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 247.53)">
 <title>vfs_implementations</title>
 <g id="clust1" class="cluster">
 <title>cluster_prod</title>
-<path fill="none" stroke="#dbe3ec" stroke-width="1.1" d="M20,-8C20,-8 146,-8 146,-8 152,-8 158,-14 158,-20 158,-20 158,-216.75 158,-216.75 158,-222.75 152,-228.75 146,-228.75 146,-228.75 20,-228.75 20,-228.75 14,-228.75 8,-222.75 8,-216.75 8,-216.75 8,-20 8,-20 8,-14 14,-8 20,-8"/>
-<text xml:space="preserve" text-anchor="middle" x="83" y="-213.35" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#6b7280">Production</text>
+<path fill="none" stroke="#dbe3ec" stroke-width="1.1" d="M20,-11.39C20,-11.39 146,-11.39 146,-11.39 152,-11.39 158,-17.39 158,-23.39 158,-23.39 158,-223.53 158,-223.53 158,-229.53 152,-235.53 146,-235.53 146,-235.53 20,-235.53 20,-235.53 14,-235.53 8,-229.53 8,-223.53 8,-223.53 8,-23.39 8,-23.39 8,-17.39 14,-11.39 20,-11.39"/>
+<text xml:space="preserve" text-anchor="middle" x="83" y="-220.13" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#6b7280">File&#45;backed</text>
 </g>
 <g id="clust2" class="cluster">
 <title>cluster_test</title>
-<path fill="none" stroke="#dbe3ec" stroke-width="1.1" d="M178,-8C178,-8 304,-8 304,-8 310,-8 316,-14 316,-20 316,-20 316,-216.75 316,-216.75 316,-222.75 310,-228.75 304,-228.75 304,-228.75 178,-228.75 178,-228.75 172,-228.75 166,-222.75 166,-216.75 166,-216.75 166,-20 166,-20 166,-14 172,-8 178,-8"/>
-<text xml:space="preserve" text-anchor="middle" x="241" y="-213.35" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#6b7280">Testing</text>
+<path fill="none" stroke="#dbe3ec" stroke-width="1.1" d="M178,-8C178,-8 304,-8 304,-8 310,-8 316,-14 316,-20 316,-20 316,-223.53 316,-223.53 316,-229.53 310,-235.53 304,-235.53 304,-235.53 178,-235.53 178,-235.53 172,-235.53 166,-229.53 166,-223.53 166,-223.53 166,-20 166,-20 166,-14 172,-8 178,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="241" y="-220.13" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#6b7280">:memory:</text>
 </g>
 <!-- p1 -->
 <g id="node1" class="node">
 <title>p1</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M132.2,-194C132.2,-194 33.8,-194 33.8,-194 27.8,-194 21.8,-188 21.8,-182 21.8,-182 21.8,-170 21.8,-170 21.8,-164 27.8,-158 33.8,-158 33.8,-158 132.2,-158 132.2,-158 138.2,-158 144.2,-164 144.2,-170 144.2,-170 144.2,-182 144.2,-182 144.2,-188 138.2,-194 132.2,-194"/>
-<text xml:space="preserve" text-anchor="middle" x="83" y="-170.97" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">B+Tree</text>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M132.2,-200.78C132.2,-200.78 33.8,-200.78 33.8,-200.78 27.8,-200.78 21.8,-194.78 21.8,-188.78 21.8,-188.78 21.8,-176.78 21.8,-176.78 21.8,-170.78 27.8,-164.78 33.8,-164.78 33.8,-164.78 132.2,-164.78 132.2,-164.78 138.2,-164.78 144.2,-170.78 144.2,-176.78 144.2,-176.78 144.2,-188.78 144.2,-188.78 144.2,-194.78 138.2,-200.78 132.2,-200.78"/>
+<text xml:space="preserve" text-anchor="middle" x="83" y="-177.75" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">B+Tree</text>
 </g>
 <!-- p2 -->
 <g id="node2" class="node">
 <title>p2</title>
-<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M132.2,-126C132.2,-126 33.8,-126 33.8,-126 27.8,-126 21.8,-120 21.8,-114 21.8,-114 21.8,-102 21.8,-102 21.8,-96 27.8,-90 33.8,-90 33.8,-90 132.2,-90 132.2,-90 138.2,-90 144.2,-96 144.2,-102 144.2,-102 144.2,-114 144.2,-114 144.2,-120 138.2,-126 132.2,-126"/>
-<text xml:space="preserve" text-anchor="middle" x="83" y="-102.97" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">PosixVfs</text>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M132.2,-132.78C132.2,-132.78 33.8,-132.78 33.8,-132.78 27.8,-132.78 21.8,-126.78 21.8,-120.78 21.8,-120.78 21.8,-108.78 21.8,-108.78 21.8,-102.78 27.8,-96.78 33.8,-96.78 33.8,-96.78 132.2,-96.78 132.2,-96.78 138.2,-96.78 144.2,-102.78 144.2,-108.78 144.2,-108.78 144.2,-120.78 144.2,-120.78 144.2,-126.78 138.2,-132.78 132.2,-132.78"/>
+<text xml:space="preserve" text-anchor="middle" x="83" y="-109.75" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">PosixVfs</text>
 </g>
 <!-- p1&#45;&gt;p2 -->
 <g id="edge1" class="edge">
 <title>p1&#45;&gt;p2</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M83,-157.66C83,-150.74 83,-142.63 83,-135.03"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="85.45,-135.12 83,-128.12 80.55,-135.12 85.45,-135.12"/>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M83,-164.44C83,-157.52 83,-149.41 83,-141.81"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="85.45,-141.9 83,-134.9 80.55,-141.9 85.45,-141.9"/>
 </g>
 <!-- p3 -->
 <g id="node3" class="node">
 <title>p3</title>
-<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M132.2,-58C132.2,-58 33.8,-58 33.8,-58 27.8,-58 21.8,-52 21.8,-46 21.8,-46 21.8,-34 21.8,-34 21.8,-28 27.8,-22 33.8,-22 33.8,-22 132.2,-22 132.2,-22 138.2,-22 144.2,-28 144.2,-34 144.2,-34 144.2,-46 144.2,-46 144.2,-52 138.2,-58 132.2,-58"/>
-<text xml:space="preserve" text-anchor="middle" x="83" y="-34.98" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Disk I/O</text>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M132.2,-61.39C132.2,-61.39 33.8,-61.39 33.8,-61.39 27.8,-61.39 21.8,-55.39 21.8,-49.39 21.8,-49.39 21.8,-37.39 21.8,-37.39 21.8,-31.39 27.8,-25.39 33.8,-25.39 33.8,-25.39 132.2,-25.39 132.2,-25.39 138.2,-25.39 144.2,-31.39 144.2,-37.39 144.2,-37.39 144.2,-49.39 144.2,-49.39 144.2,-55.39 138.2,-61.39 132.2,-61.39"/>
+<text xml:space="preserve" text-anchor="middle" x="83" y="-38.37" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Disk I/O</text>
 </g>
 <!-- p2&#45;&gt;p3 -->
 <g id="edge2" class="edge">
 <title>p2&#45;&gt;p3</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M83,-89.66C83,-82.74 83,-74.63 83,-67.03"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="85.45,-67.12 83,-60.12 80.55,-67.12 85.45,-67.12"/>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M83,-96.27C83,-88.4 83,-78.96 83,-70.3"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="85.45,-70.32 83,-63.32 80.55,-70.32 85.45,-70.32"/>
 </g>
 <!-- t1 -->
 <g id="node4" class="node">
 <title>t1</title>
-<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M290.2,-194C290.2,-194 191.8,-194 191.8,-194 185.8,-194 179.8,-188 179.8,-182 179.8,-182 179.8,-170 179.8,-170 179.8,-164 185.8,-158 191.8,-158 191.8,-158 290.2,-158 290.2,-158 296.2,-158 302.2,-164 302.2,-170 302.2,-170 302.2,-182 302.2,-182 302.2,-188 296.2,-194 290.2,-194"/>
-<text xml:space="preserve" text-anchor="middle" x="241" y="-170.97" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">B+Tree</text>
+<path fill="#eef4fb" stroke="#4a90d9" stroke-width="1.2" d="M290.2,-200.78C290.2,-200.78 191.8,-200.78 191.8,-200.78 185.8,-200.78 179.8,-194.78 179.8,-188.78 179.8,-188.78 179.8,-176.78 179.8,-176.78 179.8,-170.78 185.8,-164.78 191.8,-164.78 191.8,-164.78 290.2,-164.78 290.2,-164.78 296.2,-164.78 302.2,-170.78 302.2,-176.78 302.2,-176.78 302.2,-188.78 302.2,-188.78 302.2,-194.78 296.2,-200.78 290.2,-200.78"/>
+<text xml:space="preserve" text-anchor="middle" x="241" y="-177.75" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">B+Tree</text>
 </g>
 <!-- t2 -->
 <g id="node5" class="node">
 <title>t2</title>
-<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M290.2,-126C290.2,-126 191.8,-126 191.8,-126 185.8,-126 179.8,-120 179.8,-114 179.8,-114 179.8,-102 179.8,-102 179.8,-96 185.8,-90 191.8,-90 191.8,-90 290.2,-90 290.2,-90 296.2,-90 302.2,-96 302.2,-102 302.2,-102 302.2,-114 302.2,-114 302.2,-120 296.2,-126 290.2,-126"/>
-<text xml:space="preserve" text-anchor="middle" x="241" y="-102.97" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">MemoryVfs</text>
+<path fill="#dbe9f8" stroke="#4a90d9" stroke-width="1.2" d="M290.2,-132.78C290.2,-132.78 191.8,-132.78 191.8,-132.78 185.8,-132.78 179.8,-126.78 179.8,-120.78 179.8,-120.78 179.8,-108.78 179.8,-108.78 179.8,-102.78 185.8,-96.78 191.8,-96.78 191.8,-96.78 290.2,-96.78 290.2,-96.78 296.2,-96.78 302.2,-102.78 302.2,-108.78 302.2,-108.78 302.2,-120.78 302.2,-120.78 302.2,-126.78 296.2,-132.78 290.2,-132.78"/>
+<text xml:space="preserve" text-anchor="middle" x="241" y="-109.75" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">MemoryVfs</text>
 </g>
 <!-- t1&#45;&gt;t2 -->
 <g id="edge3" class="edge">
 <title>t1&#45;&gt;t2</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M241,-157.66C241,-150.74 241,-142.63 241,-135.03"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="243.45,-135.12 241,-128.12 238.55,-135.12 243.45,-135.12"/>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M241,-164.44C241,-157.52 241,-149.41 241,-141.81"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="243.45,-141.9 241,-134.9 238.55,-141.9 243.45,-141.9"/>
 </g>
 <!-- t3 -->
 <g id="node6" class="node">
 <title>t3</title>
-<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M290.2,-58C290.2,-58 191.8,-58 191.8,-58 185.8,-58 179.8,-52 179.8,-46 179.8,-46 179.8,-34 179.8,-34 179.8,-28 185.8,-22 191.8,-22 191.8,-22 290.2,-22 290.2,-22 296.2,-22 302.2,-28 302.2,-34 302.2,-34 302.2,-46 302.2,-46 302.2,-52 296.2,-58 290.2,-58"/>
-<text xml:space="preserve" text-anchor="middle" x="241" y="-34.98" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">HashMap</text>
+<path fill="#f6f8fa" stroke="#c7d0da" stroke-width="1.2" d="M290.2,-64.78C290.2,-64.78 191.8,-64.78 191.8,-64.78 185.8,-64.78 179.8,-58.78 179.8,-52.78 179.8,-52.78 179.8,-34 179.8,-34 179.8,-28 185.8,-22 191.8,-22 191.8,-22 290.2,-22 290.2,-22 296.2,-22 302.2,-28 302.2,-34 302.2,-34 302.2,-52.78 302.2,-52.78 302.2,-58.78 296.2,-64.78 290.2,-64.78"/>
+<text xml:space="preserve" text-anchor="middle" x="241" y="-44.74" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">Page&#45;sized</text>
+<text xml:space="preserve" text-anchor="middle" x="241" y="-31.99" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#1a1a1a">chunks in RAM</text>
 </g>
 <!-- t2&#45;&gt;t3 -->
 <g id="edge4" class="edge">
 <title>t2&#45;&gt;t3</title>
-<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M241,-89.66C241,-82.74 241,-74.63 241,-67.03"/>
-<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="243.45,-67.12 241,-60.12 238.55,-67.12 243.45,-67.12"/>
+<path fill="none" stroke="#6b7280" stroke-width="1.1" d="M241,-96.27C241,-89.52 241,-81.6 241,-74.02"/>
+<polygon fill="#6b7280" stroke="#6b7280" stroke-width="1.1" points="243.45,-74.02 241,-67.02 238.55,-74.02 243.45,-74.02"/>
 </g>
 </g>
 </svg>

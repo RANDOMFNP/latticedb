@@ -59,6 +59,7 @@
 
 - [Overview](./architecture/overview.md)
 - [Virtual File System](./architecture/vfs.md)
+- [Portable Databases](./architecture/portable-databases.md)
 - [Page Manager](./architecture/page-manager.md)
 - [Buffer Pool](./architecture/buffer-pool.md)
 - [B+Tree](./architecture/btree.md)

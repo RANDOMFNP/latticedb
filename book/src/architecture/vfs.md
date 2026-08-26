@@ -6,14 +6,20 @@ The Virtual File System is an abstraction layer over file I/O operations. Instea
 
 ## Why We Need It
 
-### 1. Testability
+### 1. Databases that are not files
 
-With a VFS, we can create an in-memory implementation for testing:
+The most visible thing this buys is databases with nothing underneath them. Open
+`:memory:` and the engine runs against a filesystem held in RAM:
 
 <img class="diagram" src="../assets/diagrams/vfs-implementations.svg"
-     alt="The same B+Tree runs over two VFS implementations: PosixVfs backed by disk I/O in production, and MemoryVfs backed by a hash map in tests">
+     alt="The same B+Tree runs over two VFS implementations: PosixVfs backed by disk I/O, and MemoryVfs holding files as page-sized chunks in RAM">
 
-Tests run instantly because there's no actual disk I/O.
+Everything above the interface is unchanged. The B+Tree, the buffer pool, the
+write-ahead log, and recovery all run exactly as they do against a disk, because
+none of them knows the difference. That is why in-memory support was a new backend
+rather than a second path through the engine.
+
+Tests get the same benefit, and run without touching a disk.
 
 ### 2. Portability
 
@@ -188,6 +194,70 @@ fn sync(self: *PosixFile) !void {
     try std.posix.fsync(self.fd);
 }
 ```
+
+## The Memory Implementation
+
+`MemoryVfs` holds files in RAM. It backs `:memory:` databases and databases
+opened from bytes, and it is a real backend rather than a testing convenience.
+
+### Files are chunks, not one buffer
+
+A file is a list of page-sized pieces:
+
+```zig
+const Chunk = union(enum) {
+    borrowed: []const u8,
+    owned: []u8,
+};
+```
+
+The obvious implementation is one growing buffer, and it is the wrong one. A
+growing buffer has to be reallocated as the file extends, and a reallocation moves
+every byte to a new address. Anything holding a slice from before that moment is
+left pointing at freed memory.
+
+That matters because lending slices is the point. A database opened from a caller's
+bytes can point at them instead of copying, which halves what loading costs. That
+is only possible if addresses are stable, so chunks came first and the lending was
+built on top.
+
+### Copy-on-write
+
+A chunk either owns its bytes or borrows them from whoever handed them over.
+Writing to a borrowed chunk copies it first, at page granularity.
+
+So a database loaded from a blob starts out borrowing all of itself, and only the
+pages actually modified become private copies. Reading a database and changing a
+little of it keeps one copy of nearly all of it, and the caller's buffer is never
+modified.
+
+### Locking is a no-op
+
+Every lock succeeds. A lock exists to keep a second process off a database, and no
+other process can reach memory this one owns. That is a decision rather than an
+omission: file-backed databases take a real lock and refuse a second opener, and
+this backend declines to pretend there is anything to exclude.
+
+### What it costs
+
+Peak memory is the database plus the buffer pool, and the pool is a small constant
+here — see [Buffer Pool](./buffer-pool.md) for why a cache barely matters when the
+storage underneath it is already RAM.
+
+```text
+   100 nodes | database    240 KB | pool 256 KB | 2.62x
+  4000 nodes | database   7416 KB | pool 256 KB | 1.04x
+ 10000 nodes | database  18432 KB | pool 256 KB | 1.01x
+```
+
+The overhead at small sizes is mostly the write-ahead log, which is a second file
+in the same backend. It shrinks as automatic checkpointing truncates it, which is
+why the ratio falls rather than rises as the database grows.
+
+The log stays enabled in memory, incidentally, and that is worth knowing. Turning
+it off looks free — a process holding the only copy of a database loses everything
+when it dies anyway — but transactions are built on it, so a database without a log
+has no `BEGIN`, no rollback, and no multi-statement atomicity.
 
 ## Error Handling
 

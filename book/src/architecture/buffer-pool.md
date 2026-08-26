@@ -274,6 +274,34 @@ Guidelines:
 - **Available RAM**: Leave room for OS and other processes
 - **Typical**: 25-75% of available RAM
 
+### In-memory databases are different
+
+All of the above assumes there is a disk to avoid. When the storage underneath is
+already RAM — a `:memory:` database, or one opened from bytes — a cache miss costs
+a copy from one part of memory to another rather than a trip to a device, so the
+pool stops being the difference between fast and slow.
+
+Measured on a fourteen megabyte in-memory database, twelve full scans took 9.2
+seconds against a 256 KB pool and 9.9 against a 32 MB one. A hundred and twenty
+times the memory bought nothing.
+
+So an in-memory database gets a small fixed pool rather than a fraction of the
+data. That keeps peak memory close to the size of the database itself, which
+matters when the point of the feature is holding many small databases at once.
+
+**The floor is a correctness requirement, not a tuning choice.** When the clock
+sweep finds no evictable frame the pool returns `BufferPoolFull`, and that surfaces
+as a failed query rather than a slow one. The pool must always have room for the
+largest set of pages pinned simultaneously.
+
+That number was measured rather than guessed, since guessing it trades memory
+against query failures. Pools from four frames upward were run through a deep
+variable-length traversal, a filtered scan, a full-text search, and a bulk write
+over a fifteen-hundred node graph. Four frames completed all of it — the engine
+does not hold many pages pinned at once. The floor sits at sixty-four, sixteen
+times that, because the measurement was single threaded and concurrent readers
+each pin pages of their own.
+
 ## Usage Pattern
 
 ```zig

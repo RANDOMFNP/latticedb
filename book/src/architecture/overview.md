@@ -11,6 +11,7 @@ This section explains how LatticeDB's storage engine works, from the ground up. 
 
 ### Storage Engine
 1. [Virtual File System](./vfs.md) - Abstracting file I/O for portability and testing
+1. [Portable Databases](./portable-databases.md) - Serializing to bytes, and running with no files at all
 2. [Page Manager](./page-manager.md) - Fixed-size pages, allocation, and checksums
 3. [Buffer Pool](./buffer-pool.md) - Caching pages in memory with eviction
 4. [B+Tree](./btree.md) - Ordered key-value storage with efficient lookups

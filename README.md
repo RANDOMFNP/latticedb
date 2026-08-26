@@ -366,6 +366,9 @@ LatticeDB's inverted index with BM25 scoring is ~300x faster than SQLite FTS5 an
 - Single-file storage with write-ahead log for crash recovery
 - Continuous backup: ship changes to a directory and restore to a point in time
 - Hot backup with `lattice backup`, taken without closing the database
+- Serialize a database to bytes and open one from bytes, for keeping many small
+  databases in object storage
+- In-memory databases with `:memory:`, touching no files at all
 - Durable named streams with explicit consumer offsets, manual trim, and graph changefeeds
 - Online freelist reuse plus `lattice compact` for safe physical tail reclamation
 - Zero configuration — open a file and start working

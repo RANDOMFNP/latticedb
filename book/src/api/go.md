@@ -47,6 +47,20 @@ defer db.Close()
 | `DisableWAL` | Open without write-ahead logging |
 | `DisableLock` | Open without taking a lock on the file |
 
+```go
+db, err := latticedb.Open(":memory:", latticedb.OpenOptions{})
+```
+
+### In-memory databases
+
+Pass `:memory:` as the path and the database has no files behind it. Nothing is
+written to disk and nothing survives closing it, which suits a scratch database, a
+test, or one you pulled out of object storage and will hand back as bytes.
+
+It behaves like any other database — transactions, the write-ahead log, and
+serialization all work. The differences are that it disappears when closed, and
+that nothing locks it, since no other process can reach it.
+
 A database can only be open in one process at a time. Opening takes a lock on the
 file, so a second process gets an error whose `Code` is `ErrorDatabaseLocked`
 rather than quietly corrupting your data. A read-only handle shares the lock with

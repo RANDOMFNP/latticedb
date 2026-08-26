@@ -8,7 +8,9 @@ The Virtual File System is an abstraction layer over file I/O operations. Instea
 
 ### 1. Testability
 
-With a VFS, we can create an in-memory implementation for testing:
+With a VFS, the engine can run against something other than a disk. `MemoryVfs`
+holds files in RAM as page-sized chunks, which is what backs `:memory:` databases
+and databases opened from bytes; tests get the same benefit for free:
 
 ```
 Production:                     Testing:
