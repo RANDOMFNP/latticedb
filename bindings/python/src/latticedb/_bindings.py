@@ -488,6 +488,7 @@ class LatticeLib:
         self._has_lattice_open_v3 = hasattr(self._lib, "lattice_open_v3")
         self._has_lattice_open_v4 = hasattr(self._lib, "lattice_open_v4")
         self._has_serialize = hasattr(self._lib, "lattice_serialize")
+        self._has_deserialize_borrowed = hasattr(self._lib, "lattice_deserialize_borrowed")
         self._setup_functions()
 
     def _setup_functions(self) -> None:
@@ -540,6 +541,15 @@ class LatticeLib:
             self._lib.lattice_deserialize.restype = c_int
             self._lib.lattice_free_bytes.argtypes = [POINTER(c_ubyte), c_size_t]
             self._lib.lattice_free_bytes.restype = None
+
+        if self._has_deserialize_borrowed:
+            self._lib.lattice_deserialize_borrowed.argtypes = [
+                POINTER(c_ubyte),
+                c_size_t,
+                POINTER(OpenOptionsV4),
+                POINTER(LatticeDatabase),
+            ]
+            self._lib.lattice_deserialize_borrowed.restype = c_int
 
         # lattice_close
         self._lib.lattice_close.argtypes = [LatticeDatabase]

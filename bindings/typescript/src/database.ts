@@ -483,11 +483,24 @@ export class Database {
  * The bytes are copied, so the caller may discard them as soon as this returns.
  * Changes made afterwards do not travel back to them.
  *
+ * Pass `copy = false` to point at `bytes` instead of duplicating them, which
+ * halves what a freshly loaded database costs in memory. Each page becomes a
+ * copy of its own the first time it is written, so reading a database and
+ * changing a little of it keeps one copy of nearly all of it, and `bytes` itself
+ * is never modified. The returned database holds a reference to `bytes` for as
+ * long as it is open, so there is nothing to keep alive by hand — but do not
+ * detach its underlying ArrayBuffer, for instance by transferring it to a
+ * worker, while the database is open.
+ *
  * Passing `IfMatch` above is worth the trouble. Two workers that read the same
  * object, change it, and write it back will otherwise silently overwrite each
  * other, and nothing reports an error when they do.
  */
-export function deserialize(bytes: Uint8Array, options: DatabaseOptions = {}): Database {
+export function deserialize(
+  bytes: Uint8Array,
+  options: DatabaseOptions = {},
+  copy = true
+): Database {
   const ffi = getFFI();
   const handle = ffi.deserialize(bytes, {
     cacheSizeMb: options.cacheSizeMb,
@@ -497,7 +510,7 @@ export function deserialize(bytes: Uint8Array, options: DatabaseOptions = {}): D
     enableVector: options.enableVector,
     vectorDimensions: options.vectorDimensions,
     lock: options.lock,
-  });
+  }, copy);
 
   // The handle is already open, so the wrapper is attached to it rather than
   // being asked to open a path of its own.
@@ -508,6 +521,9 @@ export function deserialize(bytes: Uint8Array, options: DatabaseOptions = {}): D
     ffi,
     dbHandle: handle,
     closed: false,
+    // Borrowed bytes have to outlive the database. Holding the reference here is
+    // what makes that true without asking the caller to think about it.
+    borrowed: copy ? null : bytes,
   });
   return db;
 }

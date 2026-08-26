@@ -426,6 +426,28 @@ lattice_error lattice_deserialize(
     lattice_database** db_out
 );
 
+/* Open a database from bytes without copying them.
+ *
+ * Saves holding the database twice while it loads. Each page becomes a copy of
+ * its own the first time it is written, so reading a database and changing a
+ * little of it keeps one copy of nearly all of it.
+ *
+ * THE BYTES MUST OUTLIVE THE DATABASE. Nothing is copied, so releasing them
+ * while the database is open leaves it reading freed memory. This is a separate
+ * function rather than a flag because that obligation deserves to be visible at
+ * the call site.
+ *
+ * Not every language can promise this. Go may not let C retain a pointer into
+ * its heap at all, and pinning a Java array for the life of a database would
+ * hold up the collector for just as long; those callers want
+ * lattice_deserialize instead. */
+lattice_error lattice_deserialize_borrowed(
+    const uint8_t* bytes,
+    size_t len,
+    const lattice_open_options_v4* options,
+    lattice_database** db_out
+);
+
 /* Release a buffer returned by lattice_serialize. */
 void lattice_free_bytes(uint8_t* bytes, size_t len);
 

@@ -822,6 +822,7 @@ def deserialize(
     enable_vectors: bool = False,
     vector_dimensions: int = 128,
     lock: bool = True,
+    copy: bool = True,
 ) -> Database:
     """Open a database from bytes produced by :meth:`Database.serialize`.
 
@@ -838,6 +839,13 @@ def deserialize(
     The bytes are copied, so you may discard ``data`` as soon as this returns.
     Changes made afterwards do not travel back to it; call
     :meth:`Database.serialize` again to get the new bytes.
+
+    Pass ``copy=False`` to point at ``data`` instead of duplicating it, which
+    halves what a freshly loaded database costs in memory. Each page becomes a
+    copy of its own the first time it is written, so reading a database and
+    changing a little of it keeps one copy of nearly all of it, and ``data``
+    itself is never modified. The returned database keeps a reference to ``data``
+    for as long as it is open, so there is nothing for you to keep alive by hand.
 
     Passing ``IfMatch`` above is worth the trouble. Two workers that read the
     same object, change it, and write it back will otherwise silently overwrite
@@ -862,9 +870,22 @@ def deserialize(
         lock=lock,
     )
 
-    buf = (c_ubyte * len(data)).from_buffer_copy(data)
     db_ptr = c_void_p()
-    code = lib._lib.lattice_deserialize(buf, len(data), byref(opts), byref(db_ptr))
+    if copy:
+        buf = (c_ubyte * len(data)).from_buffer_copy(data)
+        code = lib._lib.lattice_deserialize(buf, len(data), byref(opts), byref(db_ptr))
+    else:
+        if not getattr(lib, "_has_deserialize_borrowed", False):
+            raise LatticeUnsupportedError(
+                "the native library is too old to deserialize without copying"
+            )
+        # cast points at the caller's buffer rather than duplicating it, which
+        # is the whole point. from_buffer would refuse immutable bytes anyway,
+        # and from_buffer_copy would copy, which is what we are avoiding.
+        buf = ctypes.cast(data, POINTER(c_ubyte))
+        code = lib._lib.lattice_deserialize_borrowed(
+            buf, len(data), byref(opts), byref(db_ptr)
+        )
     check_error(code)
 
     # The handle is already open, so the wrapper is built around it rather than
@@ -881,4 +902,7 @@ def deserialize(
     db._lock = lock
     db._handle = db_ptr
     db._closed = False
+    # Borrowed bytes have to outlive the database. Holding the reference here is
+    # what makes that true without asking the caller to think about it.
+    db._borrowed = None if copy else data
     return db

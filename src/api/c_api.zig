@@ -1897,6 +1897,26 @@ pub export fn lattice_deserialize(
     return adoptDatabase(db, db_out);
 }
 
+pub export fn lattice_deserialize_borrowed(
+    bytes: [*c]const u8,
+    len: usize,
+    options: ?*const lattice_open_options_v4,
+    db_out: *?*lattice_database,
+) lattice_error {
+    db_out.* = null;
+    if (bytes == null) return .err_invalid_arg;
+
+    const zig_options = buildOpenOptionsV4(options) catch |err| return mapDatabaseError(err);
+
+    const db = Database.deserialize(global_allocator, bytes[0..len], .{
+        .config = zig_options.config,
+        .lock = zig_options.lock,
+        .borrow_bytes = true,
+    }) catch |err| return mapDatabaseError(err);
+
+    return adoptDatabase(db, db_out);
+}
+
 pub export fn lattice_free_bytes(bytes: [*c]u8, len: usize) void {
     if (bytes == null) return;
     global_allocator.free(bytes[0..len]);

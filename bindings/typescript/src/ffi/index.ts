@@ -303,8 +303,11 @@ export class LatticeFFI {
   /**
    * Open a database from bytes produced by `serialize`.
    */
-  deserialize(bytes: Uint8Array, options: OpenOptions = {}): DatabaseHandle {
-    if (!this.bindings.lattice_deserialize) {
+  deserialize(bytes: Uint8Array, options: OpenOptions = {}, copy = true): DatabaseHandle {
+    const entry = copy
+      ? this.bindings.lattice_deserialize
+      : this.bindings.lattice_deserialize_borrowed;
+    if (!entry) {
       throw new LatticeError(
         'the native library is too old to support deserialize',
         LatticeErrorCode.Unsupported
@@ -325,7 +328,7 @@ export class LatticeFFI {
     };
 
     const dbOut: unknown[] = [null];
-    this.checkError(this.bindings.lattice_deserialize(bytes, bytes.length, opts, dbOut));
+    this.checkError(entry(bytes, bytes.length, opts, dbOut));
     return dbOut[0];
   }
 
