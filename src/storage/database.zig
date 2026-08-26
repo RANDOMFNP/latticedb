@@ -898,8 +898,17 @@ pub const Database = struct {
         errdefer self.vfs.deinit();
 
         // 2. Open/create PageManager
+        //
+        // An in-memory database is always brought into being by opening it: there
+        // is no previous one lying around to find, so asking for create would be
+        // a formality that every caller has to remember. `lattice exec :memory:`
+        // should just work, and so should a binding that opens without create.
+        // Where deserialize has already seeded the backend the file is there, and
+        // create finds it rather than replacing it.
+        const effective_create = options.create or isMemoryPath(path);
+
         self.page_manager = PageManager.init(allocator, self.vfs.vfs(), path, .{
-            .create = options.create,
+            .create = effective_create,
             .read_only = options.read_only,
             .page_size = options.page_size,
             .lock = options.lock,
