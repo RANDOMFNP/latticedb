@@ -247,6 +247,10 @@ pub const Args = struct {
     follow: bool = false,
     interval_secs: u32 = 10,
 
+    /// Skip the file lock. For filesystems where locking does not work, not
+    /// for arranging concurrent access.
+    no_lock: bool = false,
+
     // Restore options
     output: ?[]const u8 = null,
     at_ms: ?i64 = null,
@@ -320,6 +324,8 @@ pub const Args = struct {
                         return error.InvalidInterval;
                     };
                     if (args.interval_secs == 0) return error.InvalidInterval;
+                } else if (std.mem.eql(u8, arg, "--no-lock")) {
+                    args.no_lock = true;
                 } else if (std.mem.startsWith(u8, arg, "--output=")) {
                     args.output = arg["--output=".len..];
                 } else if (std.mem.eql(u8, arg, "--force")) {

@@ -167,6 +167,67 @@ test_begin "csv format works"
 run "$LATTICE" exec "$DB" --query='MATCH (n:Person) RETURN n' --format=csv
 assert_exit_code "$EXIT_CODE" 0
 
+# ---------- Cross-process locking ----------
+#
+# Two processes writing one database file corrupt it, and the damage surfaces
+# long after the moment that caused it. These tests use two real processes,
+# because that is the thing being protected against; a second handle inside one
+# process would exercise the same kernel lock but prove less.
+
+LOCK_DB="/tmp/test-cli-lock.lattice"
+LOCK_FIFO="/tmp/test-cli-lock.fifo"
+rm -f "$LOCK_DB" "$LOCK_DB-wal" "$LOCK_FIFO"
+
+run "$LATTICE" create "$LOCK_DB"
+run "$LATTICE" exec "$LOCK_DB" --query="CREATE (p:Person {name: 'held'})"
+
+# The interactive shell holds the database open until it is told to leave, which
+# is how this test keeps a second process alive alongside the first.
+mkfifo "$LOCK_FIFO"
+"$LATTICE" query "$LOCK_DB" < "$LOCK_FIFO" > /tmp/test-cli-lock-repl.log 2>&1 &
+LOCK_HOLDER_PID=$!
+exec 9>"$LOCK_FIFO"
+sleep 2
+
+test_begin "a second writer is refused while another process holds the database"
+run "$LATTICE" exec "$LOCK_DB" --query="CREATE (p:Person {name: 'intruder'})"
+if [ "$EXIT_CODE" -ne 0 ]; then
+    pass
+else
+    fail "expected a non-zero exit code for a second writer"
+fi
+
+test_begin "the refusal explains what to do about it"
+assert_contains "$STDERR$STDOUT" "another process"
+
+test_begin "a reader is refused while a writer holds the database"
+run "$LATTICE" count "$LOCK_DB"
+if [ "$EXIT_CODE" -ne 0 ]; then
+    pass
+else
+    fail "expected a non-zero exit code for a reader"
+fi
+
+test_begin "--no-lock overrides the refusal"
+run "$LATTICE" count "$LOCK_DB" --no-lock
+assert_exit_code "$EXIT_CODE" 0
+
+# Let the holder go, and the lock goes with it.
+echo ".exit" >&9
+exec 9>&-
+wait "$LOCK_HOLDER_PID" 2>/dev/null
+sleep 1
+
+test_begin "the lock is released when the holding process exits"
+run "$LATTICE" count "$LOCK_DB"
+assert_exit_code "$EXIT_CODE" 0
+
+test_begin "the database is intact after all of that"
+run "$LATTICE" check "$LOCK_DB"
+assert_exit_code "$EXIT_CODE" 0
+
+rm -f "$LOCK_DB" "$LOCK_DB-wal" "$LOCK_FIFO" /tmp/test-cli-lock-repl.log
+
 # ---------- Cleanup ----------
 rm -f "$DB" "$DB-wal" "$DB2" "$DB2-wal" "$DB3" "$DB3-wal" "$EXPORT_FILE"
 rm -f "$DB_VEC" "$DB_VEC-wal"

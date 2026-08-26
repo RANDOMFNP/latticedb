@@ -16,6 +16,7 @@ const Repl = repl_mod.Repl;
 
 // Database types
 const Database = lattice.storage.database.Database;
+const DatabaseError = lattice.storage.database.DatabaseError;
 const DatabaseConfig = lattice.storage.database.DatabaseConfig;
 const OpenOptions = lattice.storage.database.OpenOptions;
 const PageHeader = lattice.storage.page.PageHeader;
@@ -38,6 +39,7 @@ const CheckError = error{
     ChecksumMismatch,
     IoError,
     OutOfMemory,
+    DatabaseLocked,
 };
 
 const CheckStats = struct {
@@ -275,8 +277,9 @@ fn cmdInfo(
     // Open database
     const db = Database.open(allocator, path, .{
         .read_only = true,
+        .lock = !parsed_args.no_lock,
     }) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -339,8 +342,9 @@ fn cmdCount(
     // Open database
     var db = Database.open(allocator, path, .{
         .read_only = true,
+        .lock = !parsed_args.no_lock,
     }) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -395,8 +399,8 @@ fn cmdQuery(
     const path = parsed_args.path.?;
 
     // Open database
-    const db = Database.open(allocator, path, .{}) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    const db = Database.open(allocator, path, .{ .lock = !parsed_args.no_lock }) catch |err| {
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -436,8 +440,8 @@ fn cmdExec(
     defer if (query_owned) allocator.free(query_string);
 
     // Open database
-    const db = Database.open(allocator, path, .{}) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    const db = Database.open(allocator, path, .{ .lock = !parsed_args.no_lock }) catch |err| {
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -479,8 +483,9 @@ fn cmdLabels(
     // Open database
     var db = Database.open(allocator, path, .{
         .read_only = true,
+        .lock = !parsed_args.no_lock,
     }) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -559,8 +564,9 @@ fn cmdTypes(
     // Open database
     var db = Database.open(allocator, path, .{
         .read_only = true,
+        .lock = !parsed_args.no_lock,
     }) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -639,8 +645,9 @@ fn cmdSchema(
     // Open database
     var db = Database.open(allocator, path, .{
         .read_only = true,
+        .lock = !parsed_args.no_lock,
     }) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -717,8 +724,8 @@ fn cmdCompact(
     parsed_args: *const Args,
 ) !void {
     const path = parsed_args.path.?;
-    const db = Database.open(allocator, path, .{}) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    const db = Database.open(allocator, path, .{ .lock = !parsed_args.no_lock }) catch |err| {
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -759,8 +766,8 @@ fn cmdBackup(
         return failCommand(stderr, "No destination provided. Use --file=<path>", .{});
     };
 
-    const db = Database.open(allocator, path, .{}) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    const db = Database.open(allocator, path, .{ .lock = !parsed_args.no_lock }) catch |err| {
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -858,8 +865,8 @@ fn cmdReplicate(
         return failCommand(stderr, "No destination provided. Use --to=<directory>", .{});
     };
 
-    const db = Database.open(allocator, path, .{}) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    const db = Database.open(allocator, path, .{ .lock = !parsed_args.no_lock }) catch |err| {
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -897,6 +904,21 @@ fn cmdReplicate(
         if (!parsed_args.follow) break;
         @import("compat").sleep(interval_ns);
     }
+}
+
+/// Report a database that would not open.
+///
+/// A locked database gets its own wording, because "DatabaseLocked" tells you
+/// what happened and not what to do about it.
+fn failOpen(stderr: anytype, path: []const u8, err: anyerror) anyerror {
+    if (err == DatabaseError.DatabaseLocked) {
+        return failCommand(
+            stderr,
+            "{s} is open in another process. Close it first, or pass --no-lock if you are certain nothing is writing to it.",
+            .{path},
+        );
+    }
+    return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
 }
 
 fn cmdRestore(
@@ -998,8 +1020,8 @@ fn cmdCheckpoint(
     parsed_args: *const Args,
 ) !void {
     const path = parsed_args.path.?;
-    const db = Database.open(allocator, path, .{}) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    const db = Database.open(allocator, path, .{ .lock = !parsed_args.no_lock }) catch |err| {
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -1040,11 +1062,16 @@ fn cmdCheck(
     parsed_args: *const Args,
 ) !void {
     const path = parsed_args.path.?;
-    const stats = checkDatabaseFile(allocator, path) catch |err| switch (err) {
+    const stats = checkDatabaseFile(allocator, path, !parsed_args.no_lock) catch |err| switch (err) {
         error.FileNotFound => return failCommand(stderr, "Database file not found: {s}", .{path}),
         error.PermissionDenied => return failCommand(stderr, "Permission denied while checking: {s}", .{path}),
         error.InvalidDatabase => return failCommand(stderr, "Invalid database file: {s}", .{path}),
         error.ChecksumMismatch => return failCommand(stderr, "Checksum mismatch detected in database file: {s}", .{path}),
+        error.DatabaseLocked => return failCommand(
+            stderr,
+            "{s} is open in another process. Checking it while it is being written would report damage that is not there. Close it first, or pass --no-lock.",
+            .{path},
+        ),
         error.OutOfMemory => return err,
         else => return failCommand(stderr, "Failed to check database file: {s}", .{@errorName(err)}),
     };
@@ -1074,12 +1101,17 @@ fn cmdCheck(
     }
 }
 
-fn checkDatabaseFile(allocator: std.mem.Allocator, path: []const u8) CheckError!CheckStats {
+/// Verify every page checksum in the main database file.
+///
+/// Takes a shared lock by default, because reading pages while another process
+/// flushes them reports corruption that is not there.
+fn checkDatabaseFile(allocator: std.mem.Allocator, path: []const u8, lock: bool) CheckError!CheckStats {
     var posix_vfs = PosixVfs.init(allocator);
     const vfs_impl = posix_vfs.vfs();
 
     var page_manager = PageManager.init(allocator, vfs_impl, path, .{
         .read_only = true,
+        .lock = lock,
     }) catch |err| return mapPageManagerCheckError(err);
     defer page_manager.deinit();
 
@@ -1107,6 +1139,7 @@ fn mapPageManagerCheckError(err: PageManagerError) CheckError {
         error.FileNotFound => CheckError.FileNotFound,
         error.PermissionDenied => CheckError.PermissionDenied,
         error.ChecksumMismatch => CheckError.ChecksumMismatch,
+        error.DatabaseLocked => CheckError.DatabaseLocked,
         error.InvalidHeader, error.InvalidMagic, error.VersionTooNew, error.InvalidPageId, error.PageNotAllocated => CheckError.InvalidDatabase,
         else => CheckError.IoError,
     };
@@ -1131,8 +1164,8 @@ fn cmdImport(
     };
 
     // Open database
-    var db = Database.open(allocator, path, .{}) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+    var db = Database.open(allocator, path, .{ .lock = !parsed_args.no_lock }) catch |err| {
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -1199,8 +1232,9 @@ fn cmdExport(
     // Open database
     var db = Database.open(allocator, path, .{
         .read_only = true,
+        .lock = !parsed_args.no_lock,
     }) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -1321,8 +1355,9 @@ fn cmdDump(
     // Open database
     var db = Database.open(allocator, path, .{
         .read_only = true,
+        .lock = !parsed_args.no_lock,
     }) catch |err| {
-        return failCommand(stderr, "Failed to open database: {s}", .{@errorName(err)});
+        return failOpen(stderr, path, err);
     };
     defer db.close();
 
@@ -1393,6 +1428,7 @@ fn printUsage(writer: anytype) void {
         \\  --page-size=<bytes>   Page size in bytes, 4096..65535 (default: 4096)
         \\  --file=<path>         Input/output file for import/export
         \\  --query=<cypher>      Query string for exec command
+        \\  --no-lock             Skip the file lock, for filesystems without one
         \\  -h, --help            Show help for a command
         \\  -v, --version         Show version
         \\
@@ -1676,7 +1712,7 @@ test "checkDatabaseFile validates database pages" {
     _ = try db.createNode(null, &[_][]const u8{"Person"});
     db.close();
 
-    const stats = try checkDatabaseFile(allocator, path);
+    const stats = try checkDatabaseFile(allocator, path, true);
     try std.testing.expect(stats.pages_checked > 0);
     try std.testing.expect(!stats.wal_present);
 }
@@ -1702,7 +1738,7 @@ test "checkDatabaseFile detects checksum mismatches" {
     defer file.close();
     try file.pwriteAll(&[_]u8{0xFF}, 4096 + 16);
 
-    try std.testing.expectError(CheckError.ChecksumMismatch, checkDatabaseFile(allocator, path));
+    try std.testing.expectError(CheckError.ChecksumMismatch, checkDatabaseFile(allocator, path, true));
 }
 
 test "parse and run version" {
