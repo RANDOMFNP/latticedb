@@ -105,6 +105,10 @@ class Database:
         self._lock = lock
         self._handle: Optional[Any] = None
         self._closed = False
+        # Set by deserialize when it points the database at a caller's buffer
+        # rather than copying it. Holding the reference here is what keeps those
+        # bytes alive for as long as the database can read them.
+        self._borrowed: Optional[bytes] = None
 
     def serialize(self) -> bytes:
         """Return the whole database as bytes.
@@ -872,19 +876,19 @@ def deserialize(
 
     db_ptr = c_void_p()
     if copy:
-        buf = (c_ubyte * len(data)).from_buffer_copy(data)
-        code = lib._lib.lattice_deserialize(buf, len(data), byref(opts), byref(db_ptr))
+        owned = (c_ubyte * len(data)).from_buffer_copy(data)
+        code = lib._lib.lattice_deserialize(owned, len(data), byref(opts), byref(db_ptr))
     else:
         if not getattr(lib, "_has_deserialize_borrowed", False):
             raise LatticeUnsupportedError(
                 "the native library is too old to deserialize without copying"
             )
-        # cast points at the caller's buffer rather than duplicating it, which
-        # is the whole point. from_buffer would refuse immutable bytes anyway,
-        # and from_buffer_copy would copy, which is what we are avoiding.
-        buf = ctypes.cast(data, POINTER(c_ubyte))
+        # Going through c_char_p points at the caller's buffer rather than
+        # duplicating it, which is the whole point of this branch. from_buffer
+        # refuses immutable bytes, and from_buffer_copy would copy.
+        borrowed = ctypes.cast(ctypes.c_char_p(data), POINTER(c_ubyte))
         code = lib._lib.lattice_deserialize_borrowed(
-            buf, len(data), byref(opts), byref(db_ptr)
+            borrowed, len(data), byref(opts), byref(db_ptr)
         )
     check_error(code)
 
