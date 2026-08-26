@@ -4,8 +4,35 @@ Use this file as the draft for the next release after `0.13.0`.
 
 ## Summary
 
-A database can be handed out as bytes and opened from bytes, which is what makes
-it practical to keep many small databases in object storage.
+A database can be handed out as bytes and opened from bytes, and it can run with no
+files behind it at all, which is what makes it practical to keep many small
+databases in object storage. `ORDER BY` over an aggregate also stops returning the
+wrong answer.
+
+## The ORDER BY fix
+
+Sorting was planned underneath the projection, so a query that aggregated sorted
+its raw matches and then regrouped them, which threw the ordering away:
+
+```cypher
+MATCH (a:Author)-[:WROTE]->(p:Paper)
+RETURN a.name AS name, count(p) AS papers ORDER BY papers DESC
+```
+
+```text
+before: two(2), one(1), three(3)
+after:  three(3), two(2), one(1)
+```
+
+No error, no warning, wrong order. Top-N by count is one of the most common
+analytical queries there is — most-connected nodes, most-cited papers, busiest
+accounts — so this produced plausible wrong answers in a very ordinary shape.
+
+`LIMIT` and `SKIP` moved with it, which is what makes top-N mean the top rather
+than an arbitrary subset of the matches. Ordering by a column the projection does
+not produce is now refused rather than sorted arbitrarily.
+
+Non-aggregate ordering is unchanged.
 
 ## Highlights
 
@@ -115,12 +142,36 @@ it practical to keep many small databases in object storage.
 
 ## Upgrade Notes
 
-- Nothing changes for existing code.
+- **Queries that sort by an aggregate now return different rows, and the new ones
+  are right.** Anything that worked around the old behaviour by sorting in the
+  application can stop.
+
+- Ordering by a name the projection does not produce is now an error where it
+  previously returned rows in an arbitrary order. That was never a useful answer,
+  but a query that relied on it will now fail rather than mislead.
+
+- Nothing else changes for existing code.
+
+## Documentation
+
+- New architecture chapter, [Portable Databases](../book/src/architecture/portable-databases.md),
+  covering how serialization and in-memory databases work and why each decision
+  went the way it did, including what was considered and rejected.
+
+- The VFS chapter gains a Memory Implementation section beside the POSIX one, and
+  the buffer pool chapter explains why an in-memory database is sized differently.
+  Both had described `MemoryVfs` as a hypothetical testing device.
+
+- Full-text search now documents two things that surprise people: storing a string
+  in a property does not index it, and the property named on the left of `@@` is
+  not used at all, since the index holds one document per node rather than one per
+  property.
 
 ## Validation Notes
 
-- `zig build test`, `zig build integration-test`, and `zig build crash-test`
-  passed, as did the Python, TypeScript, and Go suites.
+- `zig build test`, `zig build integration-test`, `zig build crash-test`, and
+  `zig build fuzz` passed, as did the Python, TypeScript, Go, and conformance
+  suites, and the ruff, mypy, and ESLint checks.
 - The round-trip tests were checked against a build with the flushing step
   removed and against one that never deletes the materialised file, to confirm
   they fail when the behaviour is removed.
@@ -137,3 +188,9 @@ it practical to keep many small databases in object storage.
   and against one whose writes reach through into the caller's buffer. Both
   properties are asserted directly: that borrowing allocates less than copying,
   and that the caller's bytes come back unchanged after forty writes.
+- The ORDER BY tests were checked against a build that reverts to sorting before
+  aggregation, and both fail there.
+- Pool sizing was settled by measurement rather than argument: four frames complete
+  a deep traversal, a filtered scan, a full-text search, and a bulk write over a
+  fifteen-hundred node graph, and a 256 KB pool matches a 32 MB one for speed on a
+  fourteen megabyte in-memory database.
