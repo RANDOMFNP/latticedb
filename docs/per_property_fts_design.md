@@ -34,10 +34,6 @@ feature working.
 
 The property that holds the text is the thing to index:
 
-```cypher
-CREATE FULLTEXT INDEX ON :Document(content)
-```
-
 ```zig
 try db.createNodeFtsIndex("Document", "content");
 ```
@@ -143,6 +139,78 @@ knows they no longer want it.
 Declaring an index populates it from the property values already stored, exactly
 as `createNodePropertyIndex` does.
 
+## What had to be fixed first
+
+Groundwork turned up two bugs in scoring that per-index statistics would have
+inherited, once per index rather than once.
+
+**The scorer read freed memory.** `FtsIndex.init` built a `DocLengthStore` as a
+local, copied it into the returned struct, and handed the scorer the address of
+the local — which died when the constructor returned. A workaround at one call
+site rebuilt the scorer with the correct address after indexing a document, which
+is why the bug stayed hidden: indexing then searching worked, and searching
+without indexing first did not. That is most sessions in production.
+
+**Corpus statistics were never persisted.** Document lengths were written to a
+tree; the document count and average length that BM25 needs to interpret them were
+kept in memory, started at zero, and never written down. Scores therefore changed
+on every restart. On one test corpus a document's score moved 65 per cent.
+
+Both are fixed. Statistics live under a key that cannot collide with a document
+id, and the scorer holds no reference at all — it takes the statistics it needs as
+an argument, which removes the possibility rather than repairing one instance of
+it.
+
+This matters for the design below: per-index statistics are the whole point of
+keeping properties in separate documents, and building them on a store whose
+totals evaporate on restart would have been building on sand.
+
+## Plan
+
+Six stages, each of which leaves the tree building and passing.
+
+**1. The catalog.** FTS definitions join the existing index catalog under new kind
+discriminators. The catalog key is `[kind, scope_id, property_id]`, so adding
+`node_fts` and `edge_fts` beside `node` and `edge` needs no format change at all.
+`createNodeFtsIndex`, `dropNodeFtsIndex`, and `hasNodeFtsIndex` follow the shape of
+their property-index equivalents.
+
+**2. Scoped storage.** The dictionary, lengths, and reverse trees take a
+`(scope_id, property_id)` key prefix, so one set of trees carries every declared
+index. Each index gets its own corpus statistics for free, since the statistics
+record is itself prefixed.
+
+**3. Population and maintenance.** Declaring an index reads the property from
+every matching node and indexes it. The write path indexes on create and update
+and removes on delete, next to the property index calls that already do this.
+
+**4. Query resolution.** `@@` resolves the named property to a declared index and
+searches that one. No declared index is an error naming what is missing.
+
+**5. Removing the old path.** `ftsIndexDocument` goes, and `ftsSearch` becomes
+scoped to an index.
+
+**6. Surfaces.** C API, Python, TypeScript, Go, and the documentation.
+
+Stages 1 to 4 are the feature. Stage 5 is what makes it a breaking release, and it
+is worth doing in its own commit so the diff shows exactly what a user has to
+change.
+
+## Release shape
+
+This wants a release of its own rather than riding along with other work, because
+the migration is not automatic and the notes have to lead with it.
+
+The breaking part is narrow but real: text that was indexed and is **not stored in
+a property** cannot be rebuilt, because the database never held it anywhere else.
+Someone who indexed a property's value — the common case, and what the syntax
+always implied — declares an index and carries on. Someone who indexed assembled
+or derived text has to store that text in a property first.
+
+The version should be 0.15.0. There is no compatibility promise below 1.0, but a
+removed API and a changed query behaviour deserve a minor bump and a migration
+section rather than a patch.
+
 ## Scope
 
 In:
@@ -153,7 +221,6 @@ In:
 - Automatic maintenance on create, update, and delete
 - `@@` resolving to the declared index for the property named
 - An error when no such index exists
-- Cypher syntax for declaring one
 - The C API and all four bindings
 
 Out, for now:
@@ -163,6 +230,9 @@ Out, for now:
   scoring across fields.
 - Full-text indexes on edges, unless it falls out for free.
 - Changing the tokenizer, the analyzer, or anything about how terms are produced.
+- Cypher syntax for declaring an index. There is none for property indexes either,
+  so adding it for one index type and not the other would be the inconsistency
+  rather than the fix. If index DDL arrives it should cover both at once.
 
 ## Open questions
 
