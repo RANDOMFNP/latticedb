@@ -96,6 +96,25 @@ export class Database {
   }
 
   /**
+   * Return the whole database as bytes.
+   *
+   * The result is a database file. Write it anywhere and it opens, or hand it
+   * to {@link deserialize}. This is what makes it practical to keep many small
+   * databases in object storage: upload the bytes with whatever client you
+   * already use.
+   *
+   * Pending writes are folded in first, so the bytes need no write-ahead log
+   * beside them. Throws if a transaction is open, because bytes captured while
+   * writes land underneath them are torn.
+   */
+  serialize(): Uint8Array {
+    if (this.dbHandle === null || this.ffi === null) {
+      throw new LatticeError('Database is not open', LatticeErrorCode.Error);
+    }
+    return this.ffi.serialize(this.dbHandle);
+  }
+
+  /**
    * Open the database connection.
    */
   async open(): Promise<void> {
@@ -446,4 +465,49 @@ export class Database {
       throw new Error('Database is not open');
     }
   }
+}
+
+/**
+ * Open a database from bytes produced by {@link Database.serialize}.
+ *
+ * Pair this with your own object storage client to keep many small databases in
+ * a bucket:
+ *
+ * ```typescript
+ * const blob = await s3.send(new GetObjectCommand({ Bucket, Key }));
+ * const db = deserialize(await blob.Body.transformToByteArray());
+ * db.query("CREATE (n:Note {text: 'hello'})");
+ * await s3.send(new PutObjectCommand({ Bucket, Key, Body: db.serialize(), IfMatch: etag }));
+ * ```
+ *
+ * The bytes are copied, so the caller may discard them as soon as this returns.
+ * Changes made afterwards do not travel back to them.
+ *
+ * Passing `IfMatch` above is worth the trouble. Two workers that read the same
+ * object, change it, and write it back will otherwise silently overwrite each
+ * other, and nothing reports an error when they do.
+ */
+export function deserialize(bytes: Uint8Array, options: DatabaseOptions = {}): Database {
+  const ffi = getFFI();
+  const handle = ffi.deserialize(bytes, {
+    cacheSizeMb: options.cacheSizeMb,
+    enableWal: options.enableWal,
+    enableAdjacencyCache: options.enableAdjacencyCache,
+    enableVectors: options.enableVectors,
+    enableVector: options.enableVector,
+    vectorDimensions: options.vectorDimensions,
+    lock: options.lock,
+  });
+
+  // The handle is already open, so the wrapper is attached to it rather than
+  // being asked to open a path of its own.
+  const db = Object.create(Database.prototype) as Database;
+  Object.assign(db, {
+    path: '<deserialized>',
+    options: { ...options },
+    ffi,
+    dbHandle: handle,
+    closed: false,
+  });
+  return db;
 }

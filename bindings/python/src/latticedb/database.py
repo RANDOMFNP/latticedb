@@ -4,7 +4,7 @@ Database class for Lattice Python bindings.
 
 import ctypes
 import warnings
-from ctypes import byref, c_void_p
+from ctypes import POINTER, byref, c_size_t, c_ubyte, c_void_p
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
@@ -105,6 +105,36 @@ class Database:
         self._lock = lock
         self._handle: Optional[Any] = None
         self._closed = False
+
+    def serialize(self) -> bytes:
+        """Return the whole database as bytes.
+
+        The result is a database file. Write it anywhere and it opens, or hand it
+        to :func:`deserialize`. This is what makes it practical to keep many
+        small databases in object storage: upload the bytes with whatever client
+        you already use.
+
+        Pending writes are folded in first, so the bytes need no write-ahead log
+        beside them. Raises if a transaction is open, because bytes captured
+        while writes land underneath them are torn.
+        """
+        if self._handle is None:
+            raise RuntimeError("Database is not open")
+
+        lib = get_lib()
+        if not getattr(lib, "_has_serialize", False):
+            raise LatticeUnsupportedError(
+                "the native library is too old to support serialize"
+            )
+
+        out = POINTER(c_ubyte)()
+        length = c_size_t(0)
+        code = lib._lib.lattice_serialize(self._handle, byref(out), byref(length))
+        check_error(code)
+        try:
+            return bytes(bytearray(out[: length.value]))
+        finally:
+            lib._lib.lattice_free_bytes(out, length)
 
     def __enter__(self) -> "Database":
         """Context manager entry."""
@@ -781,3 +811,74 @@ class Database:
     def is_open(self) -> bool:
         """Return True if the database is open."""
         return self._handle is not None and not self._closed
+
+
+def deserialize(
+    data: bytes,
+    *,
+    cache_size_mb: int = 100,
+    enable_wal: bool = True,
+    enable_adjacency_cache: bool = False,
+    enable_vectors: bool = False,
+    vector_dimensions: int = 128,
+    lock: bool = True,
+) -> Database:
+    """Open a database from bytes produced by :meth:`Database.serialize`.
+
+    Pair this with your own object storage client to keep many small databases
+    in a bucket:
+
+    .. code-block:: python
+
+        blob = s3.get_object(Bucket=b, Key=k)["Body"].read()
+        db = latticedb.deserialize(blob)
+        db.query("CREATE (n:Note {text: 'hello'})")
+        s3.put_object(Bucket=b, Key=k, Body=db.serialize(), IfMatch=etag)
+
+    The bytes are copied, so you may discard ``data`` as soon as this returns.
+    Changes made afterwards do not travel back to it; call
+    :meth:`Database.serialize` again to get the new bytes.
+
+    Passing ``IfMatch`` above is worth the trouble. Two workers that read the
+    same object, change it, and write it back will otherwise silently overwrite
+    each other, and nothing reports an error when they do.
+    """
+    lib = get_lib()
+    if not getattr(lib, "_has_serialize", False):
+        raise LatticeUnsupportedError(
+            "the native library is too old to support deserialize"
+        )
+
+    opts = OpenOptionsV4(
+        struct_size=ctypes.sizeof(OpenOptionsV4),
+        create=False,
+        read_only=False,
+        cache_size_mb=cache_size_mb,
+        page_size=4096,
+        enable_vector=enable_vectors,
+        vector_dimensions=vector_dimensions,
+        enable_wal=enable_wal,
+        enable_adjacency_cache=enable_adjacency_cache,
+        lock=lock,
+    )
+
+    buf = (c_ubyte * len(data)).from_buffer_copy(data)
+    db_ptr = c_void_p()
+    code = lib._lib.lattice_deserialize(buf, len(data), byref(opts), byref(db_ptr))
+    check_error(code)
+
+    # The handle is already open, so the wrapper is built around it rather than
+    # being asked to open a path of its own.
+    db = Database.__new__(Database)
+    db._path = Path("<deserialized>")
+    db._create = False
+    db._read_only = False
+    db._cache_size_mb = cache_size_mb
+    db._enable_wal = enable_wal
+    db._enable_adjacency_cache = enable_adjacency_cache
+    db._enable_vectors = enable_vectors
+    db._vector_dimensions = vector_dimensions
+    db._lock = lock
+    db._handle = db_ptr
+    db._closed = False
+    return db

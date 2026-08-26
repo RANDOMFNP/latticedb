@@ -195,6 +195,18 @@ export interface LatticeBindings {
     options: unknown,
     db_out: unknown[]
   ) => number;
+  lattice_serialize?: (
+    db: unknown,
+    bytes_out: unknown[],
+    len_out: number[]
+  ) => number;
+  lattice_deserialize?: (
+    bytes: Uint8Array,
+    len: number,
+    options: unknown,
+    db_out: unknown[]
+  ) => number;
+  lattice_free_bytes?: (bytes: unknown, len: number) => void;
   lattice_close: (db: unknown) => number;
 
   // Transaction operations
@@ -677,6 +689,21 @@ function createBindings(): LatticeBindings {
       'str', // path
       OpenOptionsV4Ptr, // options
       koffi.out(DatabasePtrPtr), // db_out
+    ]),
+    lattice_serialize: tryOptionalFunc(lib, 'lattice_serialize', 'int', [
+      DatabasePtr,
+      koffi.out(koffi.pointer('void*')), // bytes_out - raw pointer for manual free
+      koffi.out(koffi.pointer('size_t')), // len_out
+    ]),
+    lattice_deserialize: tryOptionalFunc(lib, 'lattice_deserialize', 'int', [
+      'uint8_t*', // bytes
+      'size_t', // len
+      OpenOptionsV4Ptr, // options
+      koffi.out(DatabasePtrPtr), // db_out
+    ]),
+    lattice_free_bytes: tryOptionalFunc(lib, 'lattice_free_bytes', 'void', [
+      'void*',
+      'size_t',
     ]),
     lattice_close: lib.func('lattice_close', 'int', [DatabasePtr]),
 

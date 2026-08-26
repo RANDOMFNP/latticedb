@@ -29,7 +29,7 @@
  * ```
  */
 
-export { Database, DatabaseOptions } from './database';
+export { Database, DatabaseOptions, deserialize } from './database';
 export { Transaction } from './transaction';
 export {
   Node,

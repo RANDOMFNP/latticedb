@@ -184,6 +184,56 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 	return &DB{ptr: db}, nil
 }
 
+// Serialize returns the whole database as bytes.
+func (db *DB) Serialize() ([]byte, error) {
+	if db == nil || db.ptr == nil {
+		return nil, errorFromCode(ErrorInvalidArg)
+	}
+
+	var cBytes *C.uint8_t
+	var cLen C.size_t
+	if err := errorFromCode(ErrorCode(C.lattice_serialize(db.ptr, &cBytes, &cLen))); err != nil {
+		return nil, err
+	}
+	if cBytes == nil || cLen == 0 {
+		return []byte{}, nil
+	}
+
+	// Copied into Go memory before the native buffer is released, so what the
+	// caller holds does not depend on memory this function is about to free.
+	out := C.GoBytes(unsafe.Pointer(cBytes), C.int(cLen))
+	C.lattice_free_bytes(cBytes, cLen)
+	return out, nil
+}
+
+// Deserialize opens a database from bytes produced by Serialize.
+func Deserialize(data []byte, opts OpenOptions) (*DB, error) {
+	cOpts := C.lattice_open_options_v4{
+		struct_size:            C.size_t(unsafe.Sizeof(C.lattice_open_options_v4{})),
+		create:                 C.bool(false),
+		read_only:              C.bool(false),
+		cache_size_mb:          C.uint32_t(opts.CacheSizeMB),
+		page_size:              C.uint32_t(opts.PageSize),
+		enable_vector:          C.bool(opts.EnableVector),
+		vector_dimensions:      C.uint16_t(opts.VectorDimensions),
+		enable_wal:             C.bool(opts.EnableWAL),
+		enable_adjacency_cache: C.bool(opts.EnableAdjacencyCache),
+		lock:                   C.bool(opts.Lock),
+	}
+
+	var ptr *C.uint8_t
+	if len(data) > 0 {
+		ptr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+	}
+
+	var db *C.lattice_database
+	if err := errorFromCode(ErrorCode(C.lattice_deserialize(ptr, C.size_t(len(data)), &cOpts, &db))); err != nil {
+		return nil, err
+	}
+
+	return &DB{ptr: db}, nil
+}
+
 func (db *DB) Close() (bool, error) {
 	if db == nil || db.ptr == nil {
 		return true, nil

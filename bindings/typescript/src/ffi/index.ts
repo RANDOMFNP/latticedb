@@ -270,6 +270,66 @@ export class LatticeFFI {
   }
 
   /**
+   * Return the whole database as bytes.
+   */
+  serialize(db: DatabaseHandle): Uint8Array {
+    if (!this.bindings.lattice_serialize || !this.bindings.lattice_free_bytes) {
+      throw new LatticeError(
+        'the native library is too old to support serialize',
+        LatticeErrorCode.Unsupported
+      );
+    }
+
+    const bytesOut: unknown[] = [null];
+    const lenOut: number[] = [0];
+    this.checkError(this.bindings.lattice_serialize(db, bytesOut, lenOut));
+
+    const ptr = bytesOut[0];
+    const len = lenOut[0] ?? 0;
+    if (!ptr || len === 0) {
+      return new Uint8Array(0);
+    }
+
+    try {
+      // Copied out before the native buffer is released, so what the caller
+      // holds does not depend on memory this function is about to free.
+      const decoded = koffi.decode(ptr, 'uint8_t', len) as number[];
+      return Uint8Array.from(decoded);
+    } finally {
+      this.bindings.lattice_free_bytes(ptr, len);
+    }
+  }
+
+  /**
+   * Open a database from bytes produced by `serialize`.
+   */
+  deserialize(bytes: Uint8Array, options: OpenOptions = {}): DatabaseHandle {
+    if (!this.bindings.lattice_deserialize) {
+      throw new LatticeError(
+        'the native library is too old to support deserialize',
+        LatticeErrorCode.Unsupported
+      );
+    }
+
+    const opts = {
+      struct_size: koffi.sizeof('lattice_open_options_v4'),
+      create: false,
+      read_only: false,
+      cache_size_mb: options.cacheSizeMb ?? 100,
+      page_size: options.pageSize ?? 4096,
+      enable_vector: options.enableVectors ?? options.enableVector ?? false,
+      vector_dimensions: options.vectorDimensions ?? 128,
+      enable_wal: options.enableWal ?? true,
+      enable_adjacency_cache: options.enableAdjacencyCache ?? false,
+      lock: options.lock ?? true,
+    };
+
+    const dbOut: unknown[] = [null];
+    this.checkError(this.bindings.lattice_deserialize(bytes, bytes.length, opts, dbOut));
+    return dbOut[0];
+  }
+
+  /**
    * Close a database.
    */
   close(db: DatabaseHandle): void {

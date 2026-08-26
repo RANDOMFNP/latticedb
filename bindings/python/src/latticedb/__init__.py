@@ -12,7 +12,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from latticedb.database import Database
+from latticedb.database import Database, deserialize
 from latticedb.transaction import Transaction
 from latticedb.types import (
     Node,
@@ -110,6 +110,7 @@ __all__ = [
     "LatticeAlreadyExistsError",
     "LatticeInvalidArgError",
     "LatticeTxnAbortedError",
+    "deserialize",
     "LatticeDatabaseLockedError",
     "LatticeLockTimeoutError",
     "LatticeReadOnlyError",

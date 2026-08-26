@@ -41,6 +41,68 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 	}, nil
 }
 
+// Serialize returns the whole database as bytes.
+//
+// The result is a database file. Write it anywhere and it opens, or hand it to
+// Deserialize. This is what makes it practical to keep many small databases in
+// object storage: upload the bytes with whatever client you already use.
+//
+// Pending writes are folded in first, so the bytes need no write-ahead log
+// beside them. Returns an error if a transaction is open, because bytes captured
+// while writes land underneath them are torn.
+func (db *DB) Serialize() ([]byte, error) {
+	if db == nil || db.raw == nil {
+		return nil, errors.New("latticedb: database is closed")
+	}
+	out, err := db.raw.Serialize()
+	if err != nil {
+		return nil, wrapError(err)
+	}
+	return out, nil
+}
+
+// Deserialize opens a database from bytes produced by Serialize.
+//
+// Pair this with your own object storage client to keep many small databases in
+// a bucket:
+//
+//	obj, _ := s3c.GetObject(ctx, &s3.GetObjectInput{Bucket: b, Key: k})
+//	blob, _ := io.ReadAll(obj.Body)
+//	db, _ := latticedb.Deserialize(blob, latticedb.OpenOptions{})
+//	defer db.Close()
+//	// ... change it ...
+//	next, _ := db.Serialize()
+//	s3c.PutObject(ctx, &s3.PutObjectInput{Bucket: b, Key: k, Body: bytes.NewReader(next), IfMatch: obj.ETag})
+//
+// The bytes are copied, so the caller may reuse the slice as soon as this
+// returns. Changes made afterwards do not travel back to it.
+//
+// Passing IfMatch above is worth the trouble. Two workers that read the same
+// object, change it, and write it back will otherwise silently overwrite each
+// other, and nothing reports an error when they do.
+func Deserialize(data []byte, opts OpenOptions) (*DB, error) {
+	opts = opts.withDefaults()
+
+	raw, err := cgobridge.Deserialize(data, cgobridge.OpenOptions{
+		CacheSizeMB:          opts.CacheSizeMB,
+		PageSize:             opts.PageSize,
+		EnableWAL:            opts.EnableWAL,
+		EnableAdjacencyCache: opts.EnableAdjacencyCache,
+		EnableVector:         opts.vectorsEnabled(),
+		VectorDimensions:     opts.VectorDimensions,
+		Lock:                 !opts.DisableLock,
+	})
+	if err != nil {
+		return nil, wrapError(err)
+	}
+
+	return &DB{
+		path:    "<deserialized>",
+		options: opts,
+		raw:     raw,
+	}, nil
+}
+
 func (db *DB) Close() error {
 	if db == nil || db.raw == nil {
 		return nil
