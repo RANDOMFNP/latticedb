@@ -102,15 +102,20 @@ inside one still needs its frames. If you want to reclaim the space, deleting a
 whole `gen-` directory costs you the ability to restore to any moment inside it
 and nothing else.
 
-### The one real limitation
+### Replicating a database your application is using
 
-`lattice replicate` opens the database, and LatticeDB does not lock a database
-across processes. **Do not point it at a database another process currently has
-open.** Two processes writing the same file will corrupt it.
+`lattice replicate` opens the database, and a database can only be open in one
+process at a time. Point it at a database your application has open and it will
+refuse to start, rather than corrupt anything:
 
-That makes the command right for a database nothing else is using, and wrong for
-the case people most often want, which is replicating while an application runs.
-For that, call `replicateTo` on the handle your application already has:
+```text
+Error: social.lattice is open in another process. Close it first, or pass
+--no-lock if you are certain nothing is writing to it.
+```
+
+That makes the command right for a database nothing else is using. For the case
+people most often want, which is replicating while an application runs, call
+`replicateTo` on the handle your application already has:
 
 ```zig
 // Somewhere on a timer inside your application.
@@ -122,6 +127,10 @@ reason. A generation opens with a snapshot, a snapshot has to be taken with no
 writes in flight, and only the handle that owns the database can arrange that.
 Reading the log from another process is perfectly safe; taking the snapshot is
 not.
+
+Do not reach for `--no-lock` to work around this. It exists for filesystems where
+locking does not work, and it does not make two processes safe — it only removes
+the thing that was going to tell you they were not.
 
 ## Getting a database back
 

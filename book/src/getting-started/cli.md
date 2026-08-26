@@ -484,6 +484,30 @@ knowing before you run it on real data:
 lattice update
 ```
 
+## One process at a time
+
+A database can only be open in one process at a time. If you run a command against
+a database your application already has open, it stops before touching anything:
+
+```text
+Error: social.lattice is open in another process. Close it first, or pass
+--no-lock if you are certain nothing is writing to it.
+```
+
+A command that writes needs the database to itself, and a command that only reads
+is also refused while something else is writing. That second part surprises
+people, so it is worth saying why: a reader in another process cannot see the
+writer's pending changes, and would be reading a file that is being rewritten
+underneath it. The answer it gave you would be stale at best.
+
+Any number of read-only commands can run at once against a database nobody is
+writing.
+
+Every command accepts `--no-lock`, which skips the check. It exists for
+filesystems where locking does not work, such as some network filesystems. It
+does not make concurrent access safe — it removes the thing that was going to
+tell you it was not.
+
 ## Output formats
 
 Most commands can print in a different format, which is what you want when something

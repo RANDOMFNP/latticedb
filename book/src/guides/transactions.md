@@ -182,3 +182,76 @@ db.create_node_property_index("Person", "email")   # no open write transaction
 
 Physical compaction is stricter still: `lattice compact` refuses to run while *any*
 transaction is open, read or write.
+
+## One process at a time
+
+Everything above is about transactions inside one process. There is a second,
+coarser rule underneath it: **a database can only be open in one process at a
+time.**
+
+Opening a database takes a lock on the file. A read-write handle takes it
+exclusively, and a read-only handle shares it, so:
+
+- A second process trying to write is refused.
+- A reader is refused while a writer holds the database.
+- Any number of readers can share a database that nobody is writing.
+
+You will see this as an error at the moment you open it, rather than as damage
+discovered later:
+
+```text
+Error: social.lattice is open in another process. Close it first, or pass
+--no-lock if you are certain nothing is writing to it.
+```
+
+| Language | What you get |
+|----------|--------------|
+| C | `LATTICE_ERROR_DATABASE_LOCKED` (`-16`) returned from `lattice_open_v4` |
+| Python | `LatticeDatabaseLockedError` raised |
+| TypeScript | `LatticeError` thrown, with `.code === LatticeErrorCode.DatabaseLocked` |
+| Go | `ErrorDatabaseLocked` on the returned error's `Code` |
+| Zig | `DatabaseError.DatabaseLocked` from `Database.open` |
+
+Note that this is a different error from the one above. `LATTICE_ERROR_LOCK_TIMEOUT`
+means somebody in *your* process is already writing; `LATTICE_ERROR_DATABASE_LOCKED`
+means the database belongs to a different process entirely.
+
+### Why readers are excluded too
+
+It would be convenient to let another process read while yours writes, and it
+would also be wrong. A reader in another process cannot see the writer's buffered
+pages, and a read-only handle does not open the write-ahead log at all. What it
+would read is a stale version of the file that a checkpoint may be rewriting
+underneath it, which can produce a structurally inconsistent view rather than
+merely an out-of-date one.
+
+The lock does not create that restriction. It reports it.
+
+### Turning it off
+
+Every language can turn the lock off, for filesystems where locking does not work
+— some network filesystems, notably — and where the alternative is not being able
+to open the database at all:
+
+```python
+db = latticedb.Database("social.lattice", lock=False)
+```
+
+```typescript
+const db = new Database('social.lattice', { lock: false });
+```
+
+```go
+db, err := latticedb.Open("social.lattice", latticedb.OpenOptions{DisableLock: true})
+```
+
+```bash
+lattice count social.lattice --no-lock
+```
+
+Go phrases it as a negative because a Go bool cannot tell an omitted field from a
+deliberate `false`, and locking has to stay on when the caller says nothing. The
+same reasoning already governs `DisableWAL` there.
+
+Turning the lock off does not make concurrent access safe. It removes the thing
+that was going to tell you it was not.
