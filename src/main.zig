@@ -289,9 +289,9 @@ pub const CacheEntry = query.cache.CacheEntry;
 pub const CacheStats = query.cache.CacheStats;
 
 // Version information (keep in sync with build.zig)
-pub const VERSION = "0.12.0";
+pub const VERSION = "0.13.0";
 pub const VERSION_MAJOR = 0;
-pub const VERSION_MINOR = 12;
+pub const VERSION_MINOR = 13;
 pub const VERSION_PATCH = 0;
 
 test {
