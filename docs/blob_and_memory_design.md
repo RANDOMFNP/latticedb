@@ -32,8 +32,8 @@ Three separable pieces, worth naming because they have very different costs.
 **Bytes in, bytes out.** Serialize a database to a buffer, and open a database
 from one. Almost free, because of the above.
 
-**Somewhere to put the bytes.** Talking to S3, R2, Azure Blob, and GCS. This is
-the part that looks expensive and turns out to be less so than it appears.
+**Somewhere to put the bytes.** Getting them to S3, R2, Azure Blob, or GCS. This
+looks like the expensive part and mostly is not ours to pay, for reasons below.
 
 **Never touching the disk.** Running the whole engine against memory, so a
 per-case database never becomes a file. This is the genuinely tricky one.
@@ -65,98 +65,111 @@ The one real gap is that `Database.open` hardcodes its VFS: the field is a
 concrete `PosixVfs` held by value and assigned during open, so there is no way to
 hand the engine a different one.
 
-## Phase 1 — Blob storage
+## How the bytes should reach the cloud
 
-Doing this first is the right order, and not only because it is easier. The
-replication design's outstanding phase is object storage, and it needs exactly
-the same thing: somewhere to put named, immutable objects. One abstraction
-finishes both.
+This is the decision that shapes everything else, and the first draft of this
+document got it wrong. It led with implementing SigV4 and SharedKey in the
+engine. That is the wrong place to start, and the reason is not effort.
 
-### Four providers, two signatures
+**Ask who is in the loop.** Both people who asked for this have applications. Those
+applications already have a cloud SDK, already have credentials, and already have
+a retry policy their operations team has opinions about. An engine that
+implements SigV4 is reimplementing, worse, something the caller already has — and
+taking custody of long-lived cloud credentials to do it. A database that holds
+credentials is a different security proposition from one that does not, and it is
+not a change to make in exchange for saving the caller four lines.
 
-The instinct that this means four SDKs is worth resisting, because it is not
-what the work requires.
+There is one case where nobody is in the loop: `lattice replicate` shipping to a
+bucket with no application running. That case genuinely needs the engine to speak
+to the network. It is also the case nobody has asked for yet.
 
-- **AWS S3** uses SigV4, which is a chain of HMAC-SHA256 operations over a
-  canonicalised request. `std.crypto` has everything it needs.
-- **Cloudflare R2** is S3-compatible. The same signer works against a different
-  endpoint.
-- **Google Cloud Storage** supports S3-compatible access through its XML API with
-  HMAC keys, which the same signer also covers. This matters a great deal: the
-  native GCS path would mean OAuth2 with service-account JWTs signed RS256, and
-  `std.crypto` exposes RSA only inside certificate and TLS verification, not as a
-  signing API we could call. Taking the S3-compatible route sidesteps writing RSA
-  signing from scratch, which is not a thing to do casually in a database.
-- **Azure Blob Storage** needs its own signer, but SharedKey is also HMAC-SHA256
-  over a canonicalised string. It is a second signer, not a second SDK.
+So the design is three layers, and the value is heavily concentrated in the first.
 
-So the work is one SigV4 implementation covering three providers, one SharedKey
-implementation covering the fourth, and one HTTP path shared by all of them. That
-is a meaningfully smaller job than it first looks, and it introduces no
-third-party dependency, because it is all `std`.
-
-### The interface
+### Layer 0 — bytes in, bytes out
 
 ```zig
-pub const BlobStore = struct {
-    get: fn (key: []const u8, allocator) ![]u8,
-    put: fn (key: []const u8, bytes: []const u8, cond: Condition) !PutResult,
-    delete: fn (key: []const u8) !void,
-    list: fn (prefix: []const u8, allocator) ![]ObjectInfo,
-};
+try db.serializeTo(writer);                        // stream out
+var db = try Database.deserializeFrom(reader, .{}); // stream in
 ```
 
-A `FileBlobStore` backed by a directory comes first and is what the tests run
-against, so provider bugs and logic bugs stay separable. Replication's existing
-destination code becomes a user of this rather than a parallel implementation.
+No networking, no credentials, no providers. The application does its own I/O
+with the SDK it already trusts:
 
-### Conditional writes are part of version one
+```python
+blob = s3.get_object(Bucket=b, Key=k)["Body"].read()
+db = latticedb.deserialize(blob)
+# ... mutate ...
+s3.put_object(Bucket=b, Key=k, Body=db.serialize(), IfMatch=etag)
+```
 
-The failure this architecture invites is not in the engine. Two workers pull the
-same object, both mutate it, both push, and the second silently erases the first.
-Nothing reports an error and nothing looks wrong until someone notices missing
-data.
+This completely serves both requests. It is also where conditional writes belong
+for this workflow: the caller already holds the ETag and already knows what to do
+when the condition fails, which is application logic we would only be guessing at.
 
-Every provider offers some form of conditional write keyed on an entity tag or
-generation number. `put` therefore takes a condition — write only if absent,
-write only if unchanged, or overwrite — and returns the new tag. The exact header
-each provider wants must be confirmed against current documentation rather than
-assumed, since this area has changed recently, but the shape of the interface
-does not depend on which header it is.
+Reader and writer based rather than `[]u8` based, so the same code streams to a
+socket, a file, or a buffer without the whole database existing twice in memory.
+The `[]u8` convenience wrappers sit on top for the languages that want them.
 
-Making this optional and adding it later would mean shipping a data-loss
-footgun and calling it a feature.
+### Layer 1 — a URL and some headers
 
-### Scope
-
-In: `get`, `put`, `delete`, `list`; SigV4 and SharedKey; credentials from
-environment variables and explicit configuration; retry with backoff on the
-retryable status codes; conditional writes.
-
-Out, for now: instance metadata and workload identity credential chains, and
-multipart upload. Single-request uploads cap out around 5 GB, which is far above
-"a small graph database per case", and the limit should be documented rather than
-engineered around before anyone has hit it.
-
-The whole thing sits behind a build flag. An embedded database that drags cloud
-support into every binary has given something up, and people running on a laptop
-should not pay for this.
-
-### Serialize and deserialize
-
-Independent of any provider, and the part that unblocks both people who asked:
+For when the engine should move the bytes but must not hold credentials, the
+application presigns a request and hands over the result:
 
 ```zig
-const bytes = try db.serialize(allocator);   // checkpoint, then hand back the file
-defer allocator.free(bytes);
-
-var db = try Database.openFromBytes(allocator, bytes, .{});
+try db.uploadTo(.{ .url = presigned_put_url, .headers = extra });
 ```
 
-`serialize` is `backup` writing to a buffer instead of a path, so it inherits the
-existing behaviour: pending writes are folded in first, and it refuses while a
-transaction is open. Until Phase 2 lands, `openFromBytes` writes to a temporary
-file and opens that, which is not elegant but is correct and useful immediately.
+The engine parses the URI, sets the method and headers, streams the body, and
+reads the response status and ETag. That is the whole implementation. It has no
+provider-specific code at all, because a presigned S3 URL, an R2 presigned URL,
+an Azure SAS URL, and a GCS signed URL are all just URLs. A provider that appears
+in five years works on the day it ships.
+
+`std.http.Client` already streams request bodies, which is the real argument for
+this layer over doing it in the application. Uploading a large database through
+Layer 0 means materialising it as a buffer, handing that to the SDK, and probably
+copying it again. Here the peak cost is one page. For the per-case databases
+being asked about that does not matter; for a database that is actually large it
+is the difference between working and running out of memory.
+
+The cost is that presigned URLs expire and cannot express `list`.
+
+### Layer 2 — native signers
+
+Only for the headless case: `lattice replicate s3://bucket/path` with no
+application anywhere. This is where SigV4, SharedKey, credential chains,
+instance metadata, and per-provider quirks live, and it is the layer that should
+wait until somebody needs it.
+
+If it is built, one SigV4 implementation reaches S3, Cloudflare R2, and Google
+Cloud Storage through its S3-compatible XML API with HMAC keys. That last one
+matters: the native Google path needs OAuth2 with service-account JWTs signed
+RS256, and `std.crypto` exposes RSA only inside certificate and TLS verification,
+not as a signing API. Taking the S3-compatible route avoids writing RSA signing
+from scratch, which is not a thing to do casually in a database. Azure needs a
+second signer, but SharedKey is also HMAC-SHA256 over a canonicalised string.
+
+No third-party dependency in any of it — the HTTP client is already in the tree
+for embeddings, and `std.crypto` has the hashing. It still belongs behind a build
+flag, because an embedded database that puts cloud support in every binary has
+given something up.
+
+### What replication needs
+
+Replication's outstanding object-storage phase is the one real customer for
+Layer 2, since a `--follow` loop writes objects whose names it decides as it goes
+and no application is there to presign them. A `BlobStore` interface with a
+directory-backed implementation comes first regardless, so that provider bugs and
+logic bugs stay separable, and so the existing destination code has something to
+become rather than sitting beside a parallel implementation.
+
+### What serialize actually is
+
+`serialize` is `backup` writing to a stream instead of a path, so it inherits the
+behaviour that is already tested: pending writes are folded in first, and it
+refuses while a transaction is open. Until Phase 2 lands, `deserializeFrom`
+writes to a temporary file and opens that, which is not elegant but is correct
+and useful immediately.
 
 ## Phase 2 — In-memory databases
 
@@ -231,10 +244,14 @@ corruption, and the buffer pool is on every hot path in the engine.
 
 ## Phasing
 
-**Phase 1 — Blob storage and serialization.**
-`BlobStore` with a directory-backed implementation, SigV4 for S3, R2, and GCS,
-SharedKey for Azure, conditional writes, and `serialize`/`openFromBytes` via a
-temporary file. Replication's object-storage phase is finished by the same work.
+**Phase 1 — Serialization.**
+`serializeTo` and `deserializeFrom` over readers and writers, with buffer
+conveniences on top, and the bindings to use them. No networking. This is the
+whole of what was asked for and should ship on its own.
+
+**Phase 1b — Presigned transfer.**
+Upload and download against a caller-supplied URL and headers, streaming, with
+the response ETag returned. No provider-specific code.
 
 **Phase 2 — In-memory databases.**
 Pluggable VFS, `MemoryVfs`, the two bypasses removed, and `serialize` and
