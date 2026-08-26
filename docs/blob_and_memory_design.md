@@ -189,12 +189,28 @@ Three things, none of them deep:
 With those, `openFromBytes` stops needing a temporary file and `serialize`
 becomes a copy out of memory.
 
-Worth deciding explicitly: an in-memory database should default to
-`enable_wal = false`. A log exists so that a crash cannot lose committed data,
-and a process holding the only copy of a database in its own heap loses
-everything when it dies regardless. The blob write is the durability boundary,
-and the log would only cost allocations. It should remain switchable for anyone
-who wants the atomicity of multi-statement transactions within a session.
+Worth deciding explicitly: an in-memory database should keep the log **on**.
+
+The obvious argument runs the other way. A log exists so a crash cannot lose
+committed data, a process holding the only copy of a database in its own heap
+loses everything when it dies regardless, and the blob write is the real
+durability boundary — so the log looks like pure cost.
+
+Measured rather than assumed, that reasoning does not survive: with
+`enable_wal = false`, `beginTransaction` returns `TransactionsNotEnabled`. There
+are no explicit transactions at all, so no multi-statement atomicity and no
+rollback. That is a far larger hole than the allocations it saves, and it would
+make in-memory databases quietly less capable than file-backed ones in a way
+nobody would expect.
+
+The log becomes a second file in the same memory VFS, bounded by automatic
+checkpointing at a thousand frames, which is a few megabytes next to the database
+it protects. Anyone who genuinely wants it off can still say so and accept losing
+transactions with it.
+
+Bare writing queries keep working either way, because the implicit-transaction
+path falls back to the older behaviour when transactions are unavailable rather
+than refusing the write.
 
 ### The double-buffering problem
 
